@@ -6,11 +6,11 @@
 | Frontend | React + Vite + Tailwind, deployed on Vercel (free tier) | Static SPA, no SSR needed; Vercel free tier never sleeps |
 | Backend | Node.js + Fastify + TypeScript, single runtime | Playwright/axe-core are Node-native; avoids a Python/Node split for no benefit |
 | Browser automation | Playwright (Chromium) — screenshot + Web Vitals + axe-core in one session | Half the compute of running Playwright + Lighthouse separately; matters on a free-tier compute budget |
-| Backend hosting | Render.com (free web service) | Card-free hosting for Fastify backend web service |
+| Backend hosting | Koyeb (free instance) | Replaced Render to avoid 750-hour pool limit; deployed via GHCR |
 | Database | Supabase Postgres (free tier) | 500MB free forever; auto-pauses after 7 days idle — mitigated with weekly keepalive |
 | Asset storage | Supabase Storage (free tier) | Integrated asset storage in the same Supabase project; single bucket for screenshots |
 | AI | Google AI Studio Gemini API (gemini-2.5-flash) | Free tier vision & text model for public-facing audit tool |
-| Deployment domain | Free subdomains only (*.vercel.app, *.onrender.com) | Custom domains skipped to keep the stack $0 |
+| Deployment domain | Free subdomains only (*.vercel.app, *.koyeb.app) | Custom domains skipped to keep the stack $0 |
 
 ---
 
@@ -71,7 +71,7 @@ npm run db:push
 npm run db:studio
 ```
 
-> **Important for Render:** `db:push` and `db:studio` require `DATABASE_URL` to be set in `.env`. The `db:generate` step only reads the schema file and requires no DB connection — safe to run before credentials are available.
+> **Important for Koyeb:** `db:push` and `db:studio` require `DATABASE_URL` to be set in `.env`. The `db:generate` step only reads the schema file and requires no DB connection — safe to run before credentials are available.
 
 > **Migration Policy & AI Workflow:** `drizzle.config.ts` maintains `strict: true`. Because `drizzle-kit push` requires an interactive TTY confirmation for *any* schema change in strict mode, it will always fail in the agent's non-interactive shell. To push changes, the agent must use `--force`. **CRITICAL RULE:** The agent must never use `--force` unilaterally. It must always halt, report the schema changes intended, and ask the user for explicit go-ahead before running `npx drizzle-kit push --force`, every time.
 
@@ -79,7 +79,7 @@ npm run db:studio
 
 - **Single Playwright session over Playwright + Lighthouse:** cuts compute per audit roughly in half — essential for free-tier memory & CPU limits.
 - **Single Node runtime over FastAPI split:** avoids a cross-language boundary with no functional benefit on a solo project.
-- **Async job + polling, not a blocking request:** Render cold starts and request timeouts make a single long blocking call unreliable.
+- **Async job + polling, not a blocking request:** Serverless cold starts and request timeouts make a single long blocking call unreliable.
 - **Cookie rate-limiting, no login:** keeps the "paste a URL, done" experience frictionless per the MVP spec.
 
 ---
@@ -98,8 +98,9 @@ RATE_LIMIT_FREE_AUDITS_PER_DAY=
 ---
 
 ## Known Technical Debt
-- [ ] Render.com free tier 512MB RAM ceiling means only one Playwright capture job may run at a time — managed via an in-process queue to prevent OOM crashes.
-- [ ] Render.com free tier 15-minute idle sleep causes cold starts on low traffic.
+- [ ] Koyeb free tier 512MB RAM ceiling means only one Playwright capture job may run at a time — managed via an in-process queue to prevent OOM crashes.
+- [ ] Koyeb free tier 0.1 vCPU limit will result in slower capture execution times compared to local testing.
+- [ ] Koyeb free tier regions (Frankfurt/Washington D.C.) add cross-region network latency to the Supabase ap-south-1 database.
 - [ ] No competitor comparison mode yet (stretch)
 - [ ] No PDF export yet (stretch)
 - [ ] No historical tracking / re-run comparison yet (stretch)

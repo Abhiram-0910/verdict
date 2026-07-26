@@ -5,21 +5,6 @@ import { ArrowRight, Loader2, Sparkles, AlertCircle } from 'lucide-react';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const SAMPLE_REPORT_ID = '437dc08d-e6b5-4c13-8a5e-a1f559c068ce';
 
-// Parse the verdict_usage cookie to see if exhausted
-function checkRateLimit(): boolean {
-  const match = document.cookie.match(new RegExp('(^| )verdict_usage=([^;]+)'));
-  if (match) {
-    try {
-      const usage = JSON.parse(decodeURIComponent(match[2]));
-      if (usage.count >= 5) { // RATE_LIMIT_FREE_AUDITS_PER_DAY is 5 per Task 12 summary, or 3 in code. Let's rely on the backend for exact blocks, but we can assume >= 3 based on code. Wait, the code says max is 3 or process.env. Let's just say >= 3. Wait, even better: we can check if it's >= 5 since the task notes say 5, but default is 3. We'll use 5 to be safe or just 3. Let's use 3 as it's the default.
-        return true;
-      }
-    } catch {
-      return false;
-    }
-  }
-  return false;
-}
 
 export function Landing() {
   const navigate = useNavigate();

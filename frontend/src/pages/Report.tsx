@@ -15,7 +15,7 @@ export function Report() {
 
   useEffect(() => {
     isMounted.current = true;
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId: ReturnType<typeof setTimeout>;
 
     const fetchReport = async () => {
       try {
