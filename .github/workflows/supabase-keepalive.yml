@@ -9,24 +9,15 @@ jobs:
   ping-db:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'npm'
-          cache-dependency-path: 'backend/package-lock.json'
-
-      - name: Install Dependencies
-        working-directory: ./backend
-        run: npm ci
-        env:
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-
-      - name: Run Keepalive Query
-        working-directory: ./backend
-        run: npx tsx src/scripts/keepalive.ts
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - name: Ping Supabase REST API
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: ${{ secrets.SUPABASE_SERVICE_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/")
+          echo "Supabase REST API responded with HTTP $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Unexpected status $STATUS — keepalive may have failed"
+            exit 1
+          fi
+          echo "Keepalive success."
