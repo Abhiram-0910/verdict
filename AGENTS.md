@@ -1,9 +1,9 @@
 # AGENTS.md — Session Handoff Log
 
 ## Project State
-**Last updated:** 2026-07-30
+**Last updated:** 2026-08-08
 **Current branch:** main
-**Overall status:** BYOK abstraction layer and critique integration (Step 2a) complete. Gemini and OpenAI live-verified for full audit flows. Anthropic code-complete, live-verification pending API key. xAI matches documented OpenAI-compatible spec, live-unverified — pending API key.
+**Overall status:** BYOK Steps 1–2b complete and committed (`88ba51e`). Frontend BYOK UI (model picker, key input, BYOKPanel) + plain-language error handling complete. Migration `0001` (visualStatus/copyStatus columns) generated — push-to-live status UNKNOWN (DB was auto-paused at time of restart; must verify on next session start). 4-item verification round (capture-timeout retest, malformed-AI reason-code check, live rate-limit UI check, mixed-agent-failure test) not yet started.
 
 ---
 
@@ -13,6 +13,36 @@
 ---
 
 ## Session Log
+
+### Session 13 — 2026-08-08 (BYOK Step 2b: Frontend UI + Error Handling) [RETROACTIVE]
+**Goal:** Build the frontend BYOK UI (model picker + key input panel), wire error translations, and add partial-result/rate-limit recovery flows to the Report page.
+
+**Completed:**
+- [x] Created `frontend/src/components/BYOKPanel.tsx` — collapsible panel with provider selector, API key input, and model picker. Calls `POST /api/providers/models` to fetch live model lists per provider. Validated key presence client-side before enabling submit.
+- [x] Created `frontend/src/lib/errorTranslations.ts` — maps internal reason codes (`TIMEOUT`, `BLOCKED`, `CAPTURE_FAILED`, `AI_RATE_LIMIT`, `UNKNOWN`, etc.) to user-readable plain-English strings.
+- [x] Updated `frontend/src/pages/Landing.tsx` — added BYOK toggle button (collapses/expands `BYOKPanel`), wired `byokData` into the `POST /api/audits` body, updated submit-disabled logic to also check BYOK validity, updated rate-limit message to show exact reset timestamp and offer BYOK as fallback, added `autoOpenBYOK` navigation state so the Report page can redirect back with the panel pre-opened.
+- [x] Updated `frontend/src/pages/Report.tsx` — replaced raw `failureReason` mono display with `translateError()`, added "Partial Results" warning banner when `visualStatus === 'failed'` or `copyStatus === 'failed'`, added "Use your own API key" CTA button on `AI_RATE_LIMIT` failures (in both the hard-fail screen and the partial-result banner), added BYOK provider badge in report header (persists via React Router state), refined "no findings" empty-state copy to distinguish complete/partial/legacy reports.
+- [x] Updated `backend/src/db/schema.ts` — added `agentStatusEnum` (`pending`/`complete`/`failed`) and `visualStatus`/`copyStatus` nullable columns on `auditJob`.
+- [x] Ran `npx drizzle-kit generate` — produced `0001_handy_blonde_phantom.sql`. Whether `drizzle-kit push --force` executed against the live DB before the laptop restart is **UNKNOWN** — must verify on next session start.
+- [x] Committed all work: `88ba51e` (committed retroactively at session start of Session 14 after restart).
+
+**Decisions made:**
+- BYOK provider badge on Report persists via React Router location state only — disappears on hard refresh. Deliberately left as backlog (a non-sensitive `byokProviderUsed` column on `AuditJob` would fix it, but out of scope now).
+- `translateError()` accepts `string | null | undefined` and always returns a non-empty string — safe to render directly without null-guards at callsites.
+- "Partial Results" banner shows whenever either agent status is `failed`, using the job-level `failureReason` for the message — gives the user a coherent explanation even when only one agent failed.
+- Rate-limit reset time shown in the Landing page rate-limit message is derived from the `X-RateLimit-Reset` response header (or the `resetAt` field in the 429 body).
+
+**Problems encountered:**
+- Laptop restarted mid-session. Entire BYOK system (Sessions 11–13) had never been committed — was sitting as unstaged/untracked changes. Survived by luck. Committed at start of Session 14 before any other work.
+- Supabase DB was auto-paused at restart time, blocking DB verification queries. Migration push status remains unknown until DB is manually resumed.
+
+**Next session should start with:**
+1. Verify `visual_status`/`copy_status` columns exist in live DB (query `audit_job` after resuming from Supabase dashboard). If not, run `npx drizzle-kit push --force` in `backend/`.
+2. Run the 4-item verification round: capture-timeout retest, malformed-AI reason-code check, live browser rate-limit UI check, mixed-agent-failure test.
+3. Commit to end-of-session commits going forward — not just when a task is fully closed.
+
+**Commit-at-session-end rule (new, permanent):**
+Every session must end with a `git commit` of all completed work, even if a task isn't fully closed. Mid-task progress is better committed as WIP than lost to a restart. This is the same tier of enforcement as the no-hardcoded-keys rule.
 
 ### Session 12 — 2026-07-30 (BYOK Step 2a: Critique Integration)
 **Goal:** Implement `critique()` on all 5 provider adapters, wire the audit flow through the BYOK layer, and remove `lib/gemini.ts`.
