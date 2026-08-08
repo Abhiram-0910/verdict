@@ -3,28 +3,25 @@ import { z } from 'zod';
 import { eq, sql } from 'drizzle-orm';
 import { db, auditJob, captureResult, accessibilityFinding, visualFinding, copyFinding, auditScore, actionItem } from '../db/index.js';
 import { runQueuedCapture } from '../capture/session.js';
-import { runVisualCritique } from '../agents/visualCritique.js';
+import { runVisualCritique, type ByokContext } from '../agents/visualCritique.js';
 import { runCopyCritique } from '../agents/copyCritique.js';
 import { runScoring } from '../agents/scoring.js';
 import { checkAndConsumeRateLimit } from '../lib/rateLimit.js';
+import { getProvider } from '../providers/index.js';
+import type { ProviderName } from '../providers/types.js';
 
 const submitSchema = z.object({
   url: z.string().url(),
+  byokProvider: z.string().optional(),
+  byokApiKey: z.string().optional(),
+  byokModel: z.string().optional(),
 });
 
 const idSchema = z.string().uuid();
 
 export default async function auditsRoutes(fastify: FastifyInstance) {
   fastify.post('/api/audits', async (request, reply) => {
-    // 1. Rate Limit Check
-    if (!checkAndConsumeRateLimit(request, reply)) {
-      return reply.status(429).send({
-        error: 'Rate limit exceeded',
-        detail: 'You have reached the maximum number of free audits for today.',
-      });
-    }
-
-    // 2. Input Validation
+    // 1. Input Validation
     const parsed = submitSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({
@@ -32,7 +29,39 @@ export default async function auditsRoutes(fastify: FastifyInstance) {
         detail: 'Invalid URL provided.',
       });
     }
-    const { url } = parsed.data;
+    const { url, byokProvider, byokApiKey, byokModel } = parsed.data;
+
+    let byok: ByokContext | undefined;
+    if (byokProvider) {
+      if (!byokModel) {
+        return reply.status(400).send({ error: 'Bad Request', detail: 'byokModel is required when byokProvider is provided.' });
+      }
+      
+      let provider;
+      try {
+        provider = getProvider(byokProvider as ProviderName);
+      } catch (err) {
+        return reply.status(400).send({ error: 'Bad Request', detail: 'Invalid byokProvider.' });
+      }
+
+      if (!byokApiKey || byokApiKey.trim() === '') {
+        return reply.status(400).send({ error: 'Bad Request', detail: 'byokApiKey is required for BYOK audits.' });
+      }
+
+      byok = {
+        provider: byokProvider as ProviderName,
+        apiKey: byokApiKey || '',
+        modelId: byokModel
+      };
+    }
+
+    // 2. Rate Limit Check (Bypass if using BYOK)
+    if (!byok && !checkAndConsumeRateLimit(request, reply)) {
+      return reply.status(429).send({
+        error: 'Rate limit exceeded',
+        detail: 'You have reached the maximum number of free audits for today.',
+      });
+    }
 
     // 3. Create AuditJob
     const [job] = await db.insert(auditJob).values({
@@ -49,18 +78,18 @@ export default async function auditsRoutes(fastify: FastifyInstance) {
         }
         await db.update(auditJob).set({
           status: 'failed',
-          failureReason: result.detail,
+          failureReason: result.reason,
           completedAt: sql`now()`,
         }).where(eq(auditJob.id, job.id));
       } else {
         // Run AI critiques concurrently (they handle their own DB persistence)
         // Wrap each in a broad catch so an unexpected crash in one doesn't fail the whole job
         const [visualResult, copyResult] = await Promise.all([
-          runVisualCritique(job.id, result.desktopScreenshotUrl).catch((err) => {
+          runVisualCritique(job.id, result.desktopScreenshotUrl, byok).catch((err) => {
             console.error(`[Job ${job.id}] Unhandled crash in visualCritique:`, err);
             return { success: false, reason: 'UNKNOWN', detail: String(err) } as const;
           }),
-          runCopyCritique(job.id, result.renderedText).catch((err) => {
+          runCopyCritique(job.id, result.renderedText, byok).catch((err) => {
             console.error(`[Job ${job.id}] Unhandled crash in copyCritique:`, err);
             return { success: false, reason: 'UNKNOWN', detail: String(err) } as const;
           }),
@@ -74,8 +103,19 @@ export default async function auditsRoutes(fastify: FastifyInstance) {
           console.error(`[Job ${job.id}] Unhandled crash in scoring:`, err);
         });
 
+        // Determine if either agent failed, to pass the reason back to the frontend.
+        // We prioritize AI_RATE_LIMIT so the frontend can trigger the BYOK fallback.
+        let agentFailureReason: string | null = null;
+        if (!visualResult.success) agentFailureReason = visualResult.reason;
+        if (!copyResult.success) agentFailureReason = copyResult.reason;
+        if (!visualResult.success && visualResult.reason === 'AI_RATE_LIMIT') agentFailureReason = 'AI_RATE_LIMIT';
+        if (!copyResult.success && copyResult.reason === 'AI_RATE_LIMIT') agentFailureReason = 'AI_RATE_LIMIT';
+
         await db.update(auditJob).set({
           status: 'complete',
+          visualStatus: visualResult.success ? 'complete' : 'failed',
+          copyStatus: copyResult.success ? 'complete' : 'failed',
+          failureReason: agentFailureReason,
           completedAt: sql`now()`,
         }).where(eq(auditJob.id, job.id));
       }
@@ -84,7 +124,7 @@ export default async function auditsRoutes(fastify: FastifyInstance) {
       console.error(`[Job ${job.id}] Untrapped error in runQueuedCapture:`, err);
       await db.update(auditJob).set({
         status: 'failed',
-        failureReason: err instanceof Error ? err.message : String(err),
+        failureReason: 'UNKNOWN',
         completedAt: sql`now()`,
       }).where(eq(auditJob.id, job.id));
     });

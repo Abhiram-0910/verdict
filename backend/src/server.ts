@@ -7,6 +7,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 import fastifyCookie from '@fastify/cookie';
 import auditsRoutes from './routes/audits.js';
+import providersRoutes from './routes/providers.js';
 import { db } from './db/client.js';
 import { auditJob } from './db/schema.js';
 import { eq } from 'drizzle-orm';
@@ -32,7 +33,16 @@ async function reconcileOrphanedJobs() {
 
 export async function buildServer() {
   const app = Fastify({
-    logger: true,
+    logger: {
+      // Redact apiKey fields so they can never appear in log lines,
+      // regardless of which route or handler logs the request body.
+      // Both field names are covered: the general 'apiKey' and the
+      // explicit 'byokApiKey' used in future BYOK audit submissions.
+      redact: {
+        paths: ['req.body.apiKey', 'req.body.byokApiKey'],
+        censor: '[REDACTED]',
+      },
+    },
   });
 
   const frontendUrlRaw = process.env.FRONTEND_URL || 'http://localhost:3000';
@@ -49,6 +59,7 @@ export async function buildServer() {
   });
 
   await app.register(auditsRoutes);
+  await app.register(providersRoutes);
 
   app.get('/health', async () => {
     return { status: 'ok', timestamp: new Date().toISOString() };

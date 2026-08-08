@@ -1,10 +1,11 @@
 import { z } from 'zod';
-import { generateContentWithRetry } from '../lib/gemini.js';
-import { Type } from '@google/genai';
 import { db } from '../db/client.js';
 import { visualFinding } from '../db/schema.js';
+import { getProvider } from '../providers/index.js';
+import type { ProviderName } from '../providers/types.js';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 
-export type VisualCritiqueFailureReason = 'AI_RATE_LIMIT' | 'AI_MALFORMED_OUTPUT' | 'FETCH_FAILED' | 'DB_WRITE_FAILED' | 'UNKNOWN';
+export type VisualCritiqueFailureReason = 'AI_RATE_LIMIT' | 'AI_MALFORMED_OUTPUT' | 'FETCH_FAILED' | 'DB_WRITE_FAILED' | 'UNKNOWN' | 'INVALID_API_KEY';
 
 const visualFindingSchema = z.object({
   category: z.string(),
@@ -20,7 +21,7 @@ const visualFindingSchema = z.object({
   reasoning: z.string()
 });
 
-const responseValidator = z.object({
+export const responseValidator = z.object({
   findings: z.array(visualFindingSchema)
 });
 
@@ -30,7 +31,13 @@ export type VisualCritiqueResult =
   | { success: true; findings: VisualFindingInput[] }
   | { success: false; reason: VisualCritiqueFailureReason; detail: string };
 
-export async function runVisualCritique(auditJobId: string, desktopScreenshotUrl: string): Promise<VisualCritiqueResult> {
+export interface ByokContext {
+  provider: ProviderName;
+  apiKey: string;
+  modelId: string;
+}
+
+export async function runVisualCritique(auditJobId: string, desktopScreenshotUrl: string, byok?: ByokContext): Promise<VisualCritiqueResult> {
   let base64Data: string;
   let mimeType: string;
 
@@ -49,67 +56,27 @@ export async function runVisualCritique(auditJobId: string, desktopScreenshotUrl
   const systemInstruction = "You are an expert UX/UI designer and conversion rate optimization specialist. Analyze the provided webpage screenshot for visual hierarchy, clutter, CTA visibility, and design aesthetics. Return your findings as a JSON array.";
   const prompt = `Identify any visual issues that negatively impact user experience or conversion. Focus on high-level layout, contrast, spacing, and visual clarity. Do NOT critique the text itself.`;
 
-  let responseText: string | null = null;
-  try {
-    const response = await generateContentWithRetry({
-      model: 'gemini-3.1-flash-lite',
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            findings: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  category: { type: Type.STRING, description: "e.g. hierarchy | clutter | cta_visibility" },
-                  description: { type: Type.STRING },
-                  severity: { type: Type.STRING, enum: ["high", "medium", "low"] },
-                  screenshotRegion: {
-                    type: Type.OBJECT,
-                    nullable: true,
-                    properties: {
-                      x: { type: Type.NUMBER },
-                      y: { type: Type.NUMBER },
-                      width: { type: Type.NUMBER },
-                      height: { type: Type.NUMBER },
-                    },
-                  },
-                  confidence: { type: Type.NUMBER, description: "Confidence score 0.0 to 1.0" },
-                  reasoning: { type: Type.STRING, description: "Your stated reasoning for this finding" }
-                },
-                required: ["category", "description", "severity", "confidence", "reasoning"]
-              }
-            }
-          },
-          required: ["findings"]
-        },
-      },
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: prompt },
-            { inlineData: { mimeType, data: base64Data } }
-          ]
-        }
-      ]
-    });
-    responseText = response.text || null;
-  } catch (err: any) {
-    const isRateLimit = err.message?.includes('rate limit exceeded') || err.status === 429;
-    return { 
-      success: false, 
-      reason: isRateLimit ? 'AI_RATE_LIMIT' : 'UNKNOWN', 
-      detail: err.message || String(err) 
-    };
+  const providerName = byok?.provider || 'gemini';
+  const apiKey = byok?.apiKey || process.env.GEMINI_API_KEY || '';
+  const modelId = byok?.modelId || 'gemini-3.1-flash-lite';
+
+  const provider = getProvider(providerName);
+  const jsonSchema = zodToJsonSchema(responseValidator, { target: 'jsonSchema7' }) as Record<string, unknown>;
+
+  const critiqueResult = await provider.critique({
+    systemInstruction,
+    prompt,
+    image: { base64Data, mimeType },
+    modelId,
+    apiKey,
+    jsonSchema
+  });
+
+  if (!critiqueResult.success) {
+    return critiqueResult;
   }
 
-  if (!responseText) {
-    return { success: false, reason: 'AI_MALFORMED_OUTPUT', detail: 'Gemini returned empty text response' };
-  }
+  const responseText = critiqueResult.text;
 
   let findings: VisualFindingInput[];
   try {

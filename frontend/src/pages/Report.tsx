@@ -1,14 +1,27 @@
 import { useEffect, useState, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation, useNavigate } from 'react-router-dom';
+import { translateError } from '../lib/errorTranslations';
 import { ReportPayload } from '../types';
 import { ScoreCard } from '../components/ScoreCard';
 import { ActionItemCard } from '../components/ActionItemCard';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, Key } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  gemini: 'Google Gemini',
+  openrouter: 'OpenRouter',
+  xai: 'xAI'
+};
+
 export function Report() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const byokProvider = location.state?.byokProvider;
+
   const [data, setData] = useState<ReportPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const isMounted = useRef(true);
@@ -76,14 +89,24 @@ export function Report() {
   }
 
   if (data.job.status === 'failed') {
+    const isRateLimit = data.job.failureReason === 'AI_RATE_LIMIT';
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-slate-900 border border-rose-900/50 rounded-2xl p-8 shadow-2xl">
           <AlertCircle className="w-12 h-12 text-rose-500 mb-4" />
           <h2 className="text-xl font-bold text-slate-200 mb-2">Audit Failed</h2>
-          <p className="text-slate-400 bg-slate-950 p-4 rounded-lg font-mono text-sm">
-            {data.job.failureReason || 'Unknown error occurred'}
+          <p className="text-slate-400 bg-slate-950 p-4 rounded-lg text-sm mb-4">
+            {translateError(data.job.failureReason)}
           </p>
+          {isRateLimit && (
+            <button
+              onClick={() => navigate('/', { state: { autoOpenBYOK: true } })}
+              className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+            >
+              <Key className="w-4 h-4" />
+              Use your own API key
+            </button>
+          )}
         </div>
       </div>
     );
@@ -95,11 +118,19 @@ export function Report() {
     <div className="min-h-screen bg-slate-950 text-slate-300 p-4 md:p-8">
       <div className="max-w-5xl mx-auto space-y-12">
         {/* Header Section */}
-        <header className="border-b border-slate-800 pb-8 pt-8">
-          <h1 className="text-3xl md:text-4xl font-extrabold text-slate-100 tracking-tight mb-2">
-            Audit Report
-          </h1>
-          <p className="text-slate-400 font-mono text-sm">{data.job.url}</p>
+        <header className="border-b border-slate-800 pb-8 pt-8 flex items-start justify-between">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-extrabold text-slate-100 tracking-tight mb-2 flex items-center gap-3">
+              Audit Report
+            </h1>
+            <p className="text-slate-400 font-mono text-sm">{data.job.url}</p>
+          </div>
+          {byokProvider && (
+            <div className="flex items-center gap-1.5 bg-indigo-950/40 border border-indigo-900/50 text-indigo-300 px-3 py-1.5 rounded-full text-xs font-medium shrink-0">
+              <Key className="w-3.5 h-3.5" />
+              Audited with your {PROVIDER_DISPLAY_NAMES[byokProvider] || byokProvider} key
+            </div>
+          )}
         </header>
 
         {/* Overall Score & Breakdown */}
@@ -146,9 +177,36 @@ export function Report() {
         {/* Ranked Action Items */}
         <section className="space-y-6 pb-20">
           <h2 className="text-2xl font-bold text-slate-100">Prioritized Action Items</h2>
+          
+          {/* Agent Failure Warnings */}
+          {(data.job.visualStatus === 'failed' || data.job.copyStatus === 'failed') && (
+            <div className="p-6 bg-amber-950/20 border border-amber-900/50 rounded-2xl text-amber-200/90 space-y-4">
+              <div className="flex items-center gap-3 font-semibold text-amber-500">
+                <AlertCircle className="w-5 h-5" />
+                Partial Results
+              </div>
+              <p className="text-sm">
+                Some of our AI agents failed to complete their analysis: {translateError(data.job.failureReason)}
+              </p>
+              {data.job.failureReason === 'AI_RATE_LIMIT' && (
+                <button
+                  onClick={() => navigate('/', { state: { autoOpenBYOK: true } })}
+                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors mt-2"
+                >
+                  <Key className="w-4 h-4" />
+                  Use your own API key to try again
+                </button>
+              )}
+            </div>
+          )}
+
           {actionItems.length === 0 ? (
             <div className="p-8 text-center bg-slate-900/50 rounded-2xl border border-slate-800 text-slate-400">
-              No significant issues found. Great job!
+              {data.job.visualStatus === 'complete' && data.job.copyStatus === 'complete' 
+                ? "No significant issues found. Great job!" 
+                : data.job.visualStatus === null && data.job.copyStatus === null
+                  ? "No issues recorded in this legacy report."
+                  : "No issues were found by the agents that completed."}
             </div>
           ) : (
             <div className="flex flex-col gap-4">

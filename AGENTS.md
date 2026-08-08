@@ -1,13 +1,92 @@
 # AGENTS.md — Session Handoff Log
 
 ## Project State
-**Last updated:** 2026-07-25
+**Last updated:** 2026-07-30
 **Current branch:** main
-**Overall status:** Task 8 (DB write wired to capture module) complete. session.ts successfully persists to Postgres.
+**Overall status:** BYOK abstraction layer and critique integration (Step 2a) complete. Gemini and OpenAI live-verified for full audit flows. Anthropic code-complete, live-verification pending API key. xAI matches documented OpenAI-compatible spec, live-unverified — pending API key.
+
+---
+
+## Hard Rules
+**CRITICAL RULE:** Never write a literal API key or secret value into any file, including temporary test/scratch scripts, even briefly. If a live key is needed for a verification step and it's not already in `.env`, stop and ask for it — read it from an environment variable or interactive prompt at runtime, never embed it as a string literal in a file that gets created on disk. This is the same tier of enforcement as the `drizzle-kit push --force` constraint.
 
 ---
 
 ## Session Log
+
+### Session 12 — 2026-07-30 (BYOK Step 2a: Critique Integration)
+**Goal:** Implement `critique()` on all 5 provider adapters, wire the audit flow through the BYOK layer, and remove `lib/gemini.ts`.
+
+**Completed:**
+- [x] Installed `zod-to-json-schema` to dynamically translate existing Zod validation schemas into standard JSON Schema structures for the providers.
+- [x] Updated `providers/types.ts` to include `jsonSchema: Record<string, unknown>` on `CritiqueRequest`.
+- [x] Refactored `providers/openaiCompatible.ts` to natively handle `json_schema` response formats and 429 retries internally.
+- [x] Overrode `doCritique` in `providers/openrouter.ts` to use `json_object` and inject the JSON Schema into the prompt text to bypass compatibility issues with older models.
+- [x] Upgraded `providers/anthropic.ts` to force tool use with the provided JSON Schema as the `input_schema`, correctly parsing and stringifying the `tool_use` block.
+- [x] Updated `providers/gemini.ts` to pass the `jsonSchema` natively via `config.responseJsonSchema` (applicable to 2.5+ models).
+- [x] Added `json_schema` inherited capability documentation to `providers/xai.ts`.
+- [x] Rewired `agents/visualCritique.ts` and `agents/copyCritique.ts` to extract schema via `zodToJsonSchema` and call `getProvider().critique(...)` instead of the old `lib/gemini.ts` wrapper.
+- [x] Added BYOK fields (`byokProvider`, `byokApiKey`, `byokModel`) to `POST /api/audits` route. Added validation and bypassed standard rate limit if valid BYOK fields are provided. Threaded the context through to the critique agents.
+- [x] Removed `backend/src/lib/gemini.ts`.
+- [x] `npm run typecheck` passed (0 errors).
+- [x] `npm test` passed (4/4). The existing redaction tests already strictly covered `req.body.byokApiKey`.
+- [x] Live verification with a custom e2e test script: Default (env-key Gemini) ran successfully (3 visual findings, 4 copy findings). BYOK (OpenAI with `gpt-4o`) ran successfully (0 visual findings, 4 copy findings).
+- [x] Added `Invoke-RestMethod` verification commands for Anthropic and xAI to `TODO.md`.
+
+**Decisions made:**
+- Used `zod-to-json-schema` to ensure zero drift between the validation Zod schema and the model instructions.
+- Used `generationConfig.responseJsonSchema` for Gemini rather than `responseSchema` (as corrected by user) to properly support Zod's `anyOf` complex structures.
+- Added a targeted wait/retry wrapper directly to `openaiCompatible.ts` so all derived APIs share resilience.
+
+**Next session should start with:**
+- Moving to the frontend UI build for the model picker and key input.
+
+
+### Session 11 — 2026-07-30 (BYOK Step 1: Provider Abstraction Layer)
+**Goal:** Build `backend/src/providers/` abstraction layer with 5 provider adapters, a `/api/providers/models` route, key redaction, and in-process model-list cache. Live-verify at least Gemini and OpenAI.
+
+**Completed:**
+- [x] Installed `vitest` as dev dependency; added `npm test` script to `package.json`.
+- [x] Created `backend/src/providers/types.ts` — `AIProvider` interface, `ModelInfo`, `CritiqueRequest`, `CritiqueResult`, `ProviderName`, shared `ProviderErrorReason` codes (centralised from inline agent definitions).
+- [x] Created `backend/src/providers/openaiCompatible.ts` — abstract base class for OpenAI-shaped providers. Handles Bearer auth, GET /v1/models, 1-hour in-process model-list cache (keyed by provider name, NOT key), error normalisation, POST /v1/chat/completions for `critique()`.
+- [x] Created `backend/src/providers/openai.ts` — extends base. Exported `VISION_MODEL_PREFIXES` allowlist (required because OpenAI's models API has no capability fields). Non-chat models filtered out.
+- [x] Created `backend/src/providers/xai.ts` — extends base. Vision detection via `prompt_image_token_price > 0` (approved proxy, documented in code + AGENTS.md).
+- [x] Created `backend/src/providers/openrouter.ts` — extends base. `listModels()` skips Authorization header (public endpoint). Vision from `architecture.input_modalities.includes('image')` (documented API field).
+- [x] Created `backend/src/providers/anthropic.ts` — custom class (not OpenAI base). `x-api-key` + `anthropic-version` headers. Vision from `capabilities.image_input.supported` (native boolean). `critique()` maps to Anthropic Messages API format.
+- [x] Created `backend/src/providers/gemini.ts` — custom class. Vision filter: `supportedGenerationMethods` includes `generateContent` AND name excludes `embedding`, `aqa`, `tts`. 429 retry self-contained. `lib/gemini.ts` preserved for backward compat with existing agents.
+- [x] Created `backend/src/providers/index.ts` — singleton registry/factory.
+- [x] Created `backend/src/routes/providers.ts` — `POST /api/providers/models`. Zod-validates body, calls registry, filters to `supportsVision === true`, maps `ProviderFetchError` to correct HTTP status codes. `apiKey` never touches DB.
+- [x] Updated `backend/src/server.ts` — added pino `redact` config for `req.body.apiKey` and `req.body.byokApiKey`. Registered `providersRoutes`.
+- [x] Created `backend/tests/providers/redaction.test.ts` — 4-test vitest suite proving pino redaction. Tests pass.
+- [x] Updated `ARCHITECTURE.md` — added OpenAI allowlist maintenance debt entry, added Anthropic+xAI pending-verification entry, removed now-resolved generic 'abstraction layer' debt.
+- [x] Updated `TODO.md` — BYOK task updated with granular completion status and explicit named gap for pending verifications.
+- [x] `npm run typecheck` — 0 errors.
+- [x] `npm test` — 4/4 pass.
+- [x] **Gemini live-verified** — 38 vision-capable models returned. Exclusion filters (embedding/aqa/tts) confirmed working.
+- [x] **OpenRouter live-verified** — 211 vision-capable models. `architecture.input_modalities` detection confirmed. Public endpoint (no key) working correctly.
+- [x] **OpenAI live-verified** — 18 vision-capable models after fix (see Problems). `VISION_MODEL_PREFIXES` allowlist confirmed. `gpt-4-turbo`, `gpt-4o` family, `o1`/`o3`/`o4` family all correctly included.
+- [ ] **Anthropic live-verification PENDING** — no API key available. Code-complete, reviewed to same standard.
+- [ ] **xAI live-verification PENDING** — no API key available. Matches documented OpenAI-compatible spec, live-unverified — pending API key.
+
+**Decisions made:**
+- `lib/gemini.ts` NOT deleted in this step — `visualCritique.ts` and `copyCritique.ts` still import from it. Deletion deferred to the wiring step (BYOK Step 2).
+- Gemini vision detection: conservative filter (`generateContent` + exclusion patterns) rather than "all Gemini models" — prevents silently including non-vision models that would break Visual Critique agent downstream.
+- xAI vision detection: `prompt_image_token_price > 0` approved as proxy. Documented in code and here.
+- OpenAI vision: allowlist approach documented as permanent maintenance debt in `ARCHITECTURE.md` — not a one-time gap.
+- OpenRouter `listModels()` accepts apiKey but ignores it (public endpoint). Zod still requires non-empty string for the route schema — callers pass any placeholder.
+- Task stays open in `TODO.md` until all 5 providers are live-verified.
+
+**Problems encountered:**
+- `providers/gemini.ts` had a TypeScript error on the Gemini SDK `parts` array type. Fixed by importing `Part` from `@google/genai` and typing the array properly.
+- OpenRouter `listModels()` with empty `apiKey` string correctly 400'd from Zod validation — callers should pass a placeholder string when no key is needed.
+- **OpenAI false-positives caught during live verification**: `gpt-4o-transcribe`, `gpt-4o-mini-tts`, `gpt-4o-search-preview`, and `gpt-4o-transcribe-diarize` all share the `gpt-4o` prefix and slipped through the initial allowlist check. Fixed by adding `VISION_EXCLUSION_SUFFIXES` (`transcribe`, `-tts`, `search-preview`, `diarize`) applied after prefix matching. Result: 30 models → 18 correct vision-only models. This is exactly the kind of problem the live-verification requirement exists to catch.
+
+**Next session should start with:**
+- Complete OpenAI live-verification (key expected imminently).
+- When Anthropic and xAI keys are available, run live verification and close the gap.
+- Then proceed to BYOK Step 2: wire the provider layer into the audit flow (replace `lib/gemini.ts` imports in agents with the new provider registry) and build the frontend UI (model picker + key input).
+
+---
 
 ### Session 0 — 2026-07-24 (Planning)
 **Goal:** Define architecture, failure audit, master task list, and initial project docs for Verdict.
@@ -190,3 +269,41 @@
 **Next session should start with:**
 - Task 14 (Supabase Storage upload wiring) or Report UI.
 
+---
+
+### Session 9 — 2026-07-26 (MVP Feature-Complete & Deployment Blocked)
+**Goal:** Finalize MVP features (UI, integrations) and deploy to cloud environments.
+
+**Completed:**
+- [x] Supabase Storage upload wiring for screenshots.
+- [x] Report UI (score, category breakdown, ranked action items, annotated screenshot).
+- [x] Landing page + failure-state UI.
+- [x] GitHub Actions Supabase keepalive cron (`.github/workflows/supabase-keepalive.yml`) built and verified to prevent 7-day auto-pause.
+- [x] GitHub Actions Docker push workflow (`.github/workflows/docker-publish.yml`) with automated Koyeb CLI redeploy trigger.
+- [x] Project is feature-complete and fully verified locally (capture, both critique agents, scoring, report UI, landing page, rate limiting — all tested end-to-end with real data).
+
+**Problems encountered:**
+- Switched backend deployment plan from Render to Koyeb due to Render's 750-hour shared workspace limit.
+- **Blocker:** Koyeb's identity verification is pending with no visible timeline. Deployment is halted.
+- Google Cloud Run was evaluated as an alternative but declined due to the card requirement.
+- Cloudflare Browser Rendering + Vercel-only hosting was evaluated as a card-free alternative but not pursued (real rework required, 10-min/day hard ceiling).
+
+**Next session should start with:**
+- Check Koyeb dashboard/email for verification status before resuming. This is the literal first action for the next session.
+
+---
+
+### Session 10 — 2026-07-27 (Phase Transition: Production Hardening & BYOK)
+**Goal:** Shift from MVP build to production hardening.
+
+**Completed:**
+- [x] Defined the comprehensive production-hardening sprint in `TODO.md`.
+- [x] Updated `ARCHITECTURE.md` to reflect the upcoming BYOK (Bring-Your-Own-Key) provider abstraction layer.
+
+**Decisions made:**
+- The MVP is verified complete. Instead of idling on Koyeb's verification blocker, the project is advancing to production-hardening.
+- A BYOK system will be introduced to support Gemini, OpenAI, Anthropic, Grok, and OpenRouter interchangeably with live model fetching, moving away from a hardcoded single-provider dependency.
+- Comprehensive security and UX review passes are now officially prioritized before launch.
+
+**Next session should start with:**
+- The Backlog Review or scaffolding the BYOK provider-abstraction layer.

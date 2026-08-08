@@ -35,6 +35,15 @@ export const auditJobStatusEnum = pgEnum('audit_job_status', [
 /** TypeScript union mirroring the pgEnum — use this in application code. */
 export type AuditJobStatus = (typeof auditJobStatusEnum.enumValues)[number];
 
+export const agentStatusEnum = pgEnum('agent_status', [
+  'pending',
+  'complete',
+  'failed'
+]);
+
+/** TypeScript union mirroring the agentStatusEnum — use this in application code. */
+export type AgentStatus = (typeof agentStatusEnum.enumValues)[number];
+
 // ── Tables ───────────────────────────────────────────────────────────────────
 
 /**
@@ -45,6 +54,8 @@ export const auditJob = pgTable('audit_job', {
   id: uuid('id').primaryKey().defaultRandom(),
   url: text('url').notNull(),
   status: auditJobStatusEnum('status').notNull().default('pending'),
+  visualStatus: agentStatusEnum('visual_status'),
+  copyStatus: agentStatusEnum('copy_status'),
   /** Populated on hard failure — surface directly in the UI, never hide it. */
   failureReason: text('failure_reason'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

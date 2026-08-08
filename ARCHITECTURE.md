@@ -9,7 +9,7 @@
 | Backend hosting | Koyeb (free instance) | Replaced Render to avoid 750-hour pool limit; deployed via GHCR |
 | Database | Supabase Postgres (free tier) | 500MB free forever; auto-pauses after 7 days idle — mitigated with weekly keepalive |
 | Asset storage | Supabase Storage (free tier) | Integrated asset storage in the same Supabase project; single bucket for screenshots |
-| AI | Google AI Studio Gemini API (gemini-2.5-flash) | Free tier vision & text model for public-facing audit tool |
+| AI | Google AI Studio Gemini API (Default) + BYOK Abstraction Layer | Currently uses Gemini free tier. Transitioning to a Bring-Your-Own-Key (BYOK) system supporting Gemini, OpenAI, Anthropic, Grok, and OpenRouter interchangeably. |
 | Deployment domain | Free subdomains only (*.vercel.app, *.koyeb.app) | Custom domains skipped to keep the stack $0 |
 
 ---
@@ -98,6 +98,9 @@ RATE_LIMIT_FREE_AUDITS_PER_DAY=
 ---
 
 ## Known Technical Debt
+- [ ] **OpenAI vision allowlist requires manual maintenance.** `providers/openai.ts` exports `VISION_MODEL_PREFIXES` — a prefix-based allowlist used because OpenAI's `GET /v1/models` response has no capability flags. This list must be manually updated whenever OpenAI ships new vision-capable models. Last verified: 2026-07-30. This is permanent maintenance debt, not a one-time gap.
+- [ ] **Gemini responseJsonSchema requires 2.5+ models.** `providers/gemini.ts` passes the derived JSON Schema to `responseJsonSchema`, assuming Gemini 2.5+ models (true for the current default and any modern BYOK Gemini model). Pre-2.5 models do not support this field and would need a fallback to the OpenAPI subset. Not worth building defensively for now, just ensure the model list catalog stays current so this doesn't quietly resurface.
+- [ ] **Anthropic + xAI adapters live-verification pending.** Both adapters are code-complete and reviewed to the same standard as the verified Gemini and OpenAI adapters, but have not been tested against their real `/models` endpoints. Blocked by missing API keys — see TODO.md.
 - [ ] Koyeb free tier 512MB RAM ceiling means only one Playwright capture job may run at a time — managed via an in-process queue to prevent OOM crashes.
 - [ ] Koyeb free tier 0.1 vCPU limit will result in slower capture execution times compared to local testing.
 - [ ] Koyeb free tier regions (Frankfurt/Washington D.C.) add cross-region network latency to the Supabase ap-south-1 database.

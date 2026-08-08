@@ -1,10 +1,11 @@
 import { z } from 'zod';
-import { generateContentWithRetry } from '../lib/gemini.js';
-import { Type } from '@google/genai';
 import { db } from '../db/client.js';
 import { copyFinding } from '../db/schema.js';
+import { getProvider } from '../providers/index.js';
+import { zodToJsonSchema } from 'zod-to-json-schema';
+import type { ByokContext } from './visualCritique.js';
 
-export type CopyCritiqueFailureReason = 'AI_RATE_LIMIT' | 'AI_MALFORMED_OUTPUT' | 'DB_WRITE_FAILED' | 'UNKNOWN';
+export type CopyCritiqueFailureReason = 'AI_RATE_LIMIT' | 'AI_MALFORMED_OUTPUT' | 'DB_WRITE_FAILED' | 'UNKNOWN' | 'INVALID_API_KEY' | 'FETCH_FAILED';
 
 const copyFindingSchema = z.object({
   category: z.string(),
@@ -14,7 +15,7 @@ const copyFindingSchema = z.object({
   reasoning: z.string()
 });
 
-const responseValidator = z.object({
+export const responseValidator = z.object({
   findings: z.array(copyFindingSchema)
 });
 
@@ -24,7 +25,7 @@ export type CopyCritiqueResult =
   | { success: true; findings: CopyFindingInput[] }
   | { success: false; reason: CopyCritiqueFailureReason; detail: string };
 
-export async function runCopyCritique(auditJobId: string, renderedText: string | null): Promise<CopyCritiqueResult> {
+export async function runCopyCritique(auditJobId: string, renderedText: string | null, byok?: ByokContext): Promise<CopyCritiqueResult> {
   if (!renderedText || renderedText.trim().length === 0) {
     return { success: true, findings: [] };
   }
@@ -32,56 +33,26 @@ export async function runCopyCritique(auditJobId: string, renderedText: string |
   const systemInstruction = "You are an expert copywriter and conversion optimization specialist. Analyze the provided webpage text for clarity, messaging, strong calls to action (CTAs), and trust signals. Return your findings as a JSON array.";
   const prompt = `Analyze the following webpage copy:\n\n${renderedText}\n\nIdentify any issues that negatively impact trust, clarity, or conversion. E.g. ambiguous messaging, weak CTAs, or missing trust signals.`;
 
-  let responseText: string | null = null;
-  try {
-    const response = await generateContentWithRetry({
-      model: 'gemini-3.1-flash-lite',
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            findings: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  category: { type: Type.STRING, description: "e.g. five_second | cta_copy | trust_signal" },
-                  description: { type: Type.STRING },
-                  severity: { type: Type.STRING, enum: ["high", "medium", "low"] },
-                  confidence: { type: Type.NUMBER, description: "Confidence score 0.0 to 1.0" },
-                  reasoning: { type: Type.STRING, description: "Your stated reasoning for this finding" }
-                },
-                required: ["category", "description", "severity", "confidence", "reasoning"]
-              }
-            }
-          },
-          required: ["findings"]
-        },
-      },
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: prompt }
-          ]
-        }
-      ]
-    });
-    responseText = response.text || null;
-  } catch (err: any) {
-    const isRateLimit = err.message?.includes('rate limit exceeded') || err.status === 429;
-    return { 
-      success: false, 
-      reason: isRateLimit ? 'AI_RATE_LIMIT' : 'UNKNOWN', 
-      detail: err.message || String(err) 
-    };
+  const providerName = byok?.provider || 'gemini';
+  const apiKey = byok?.apiKey || process.env.GEMINI_API_KEY || '';
+  const modelId = byok?.modelId || 'gemini-3.1-flash-lite';
+
+  const provider = getProvider(providerName);
+  const jsonSchema = zodToJsonSchema(responseValidator, { target: 'jsonSchema7' }) as Record<string, unknown>;
+
+  const critiqueResult = await provider.critique({
+    systemInstruction,
+    prompt,
+    modelId,
+    apiKey,
+    jsonSchema
+  });
+
+  if (!critiqueResult.success) {
+    return critiqueResult as { success: false; reason: CopyCritiqueFailureReason; detail: string };
   }
 
-  if (!responseText) {
-    return { success: false, reason: 'AI_MALFORMED_OUTPUT', detail: 'Gemini returned empty text response' };
-  }
+  const responseText = critiqueResult.text;
 
   let findings: CopyFindingInput[];
   try {
