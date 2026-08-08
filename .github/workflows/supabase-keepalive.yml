@@ -14,7 +14,7 @@ jobs:
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
-            "${{ secrets.SUPABASE_URL }}/rest/v1/audit_job?limit=1")
+            "https://shsouuvbiyoqcfdmcoxs.supabase.co/rest/v1/audit_job?limit=1")
           echo "Supabase REST API responded with HTTP $STATUS"
           if [ "$STATUS" != "200" ] && [ "$STATUS" != "206" ]; then
             echo "Unexpected status $STATUS — keepalive may have failed"
