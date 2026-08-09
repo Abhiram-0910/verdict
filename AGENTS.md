@@ -368,3 +368,26 @@ Every session must end with a `git commit` of all completed work, even if a task
 
 **Next session should start with:**
 - The Backlog Review or scaffolding the BYOK provider-abstraction layer.
+
+---
+
+### Session 16 — 2026-08-09 (Full Visual/UX Design Pass — Phase 1)
+**Goal:** Implement the token-based design system and execute the first round of major UI polish (Landing Page Hero), establishing a clinical/diagnostic visual identity.
+
+**Completed:**
+- [x] Defined and wired the core token system (`paper`, `ink`, `line`, `signal`, `flag-critical`, `flag-warning`) directly into Tailwind's theme config, replacing all ad-hoc hex values.
+- [x] Rebuilt the Landing Page Hero: transformed the URL input into a CLI-style command register (mono-font, blinking `>` prompt, stripped default outline) and replaced the generic scan bar with a clinical, animated oscilloscope-style SVG waveform.
+- [x] Re-verified all accessibility baselines (reduced motion respects `display: none` for animations; focus rings standardise on single `ring-signal`; contrast ratios validated via actual WCAG math).
+- [x] Identified and fixed three concrete UI bugs during verification:
+  1. **Badge Z-Index Collision:** The new waveform originally struck through the `03/100` badge text. Fixed by bumping the badge to `z-20`.
+  2. **Double Focus Ring:** The native input was showing a double outline inside the `focus-within` container. Stripped using `focus-visible:ring-0`.
+  3. **Sub-pixel SVG Rendering Defect:** The waveform appeared as disconnected marks. Discovered it was a Chromium rendering bug triggered by `preserveAspectRatio="none"` and `vectorEffect="non-scaling-stroke"`. Completely rebuilt the SVG `viewBox` (`0 0 384 30`) to precisely map the container width and removed the problematic properties, ensuring a solid 2px stroke across all states.
+- [x] Removed all debug borders and scratch analysis scripts (`analyze-pixels.js`, `ascii-detail.js`, etc.) used during defect investigation.
+- [x] Committed Phase 1 design changes.
+
+**Decisions made:**
+- Hardcoded the exact WCAG contrast fix directly (`flag-warning` darkened to `#A16618` for `4.54:1` on `paper`), keeping correctness prioritized over out-of-the-box palette assumptions.
+- Proved definitively that the initial appearance of "disconnected marks" at `progress=0%` is actually the correct clipping behavior of the `overflow-hidden` parent masking the upward spikes as the trace enters the frame.
+
+**Next session should start with:**
+- Phase 2 (Report Page) of the UX Design Pass, Backlog Review, or Security Review.
