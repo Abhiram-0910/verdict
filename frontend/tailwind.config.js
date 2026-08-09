@@ -7,15 +7,29 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: '#f0f7ff',
-          100: '#e0effe',
-          500: '#0284c7',
-          600: '#0369a1',
-          700: '#075985',
-          900: '#0c4a6e',
-        }
-      }
+        paper: '#FAFAFA',
+        ink: '#15181C',
+        line: '#DADFE3',
+        signal: '#2955A3',
+        'flag-critical': '#C63B2E',
+        'flag-warning': '#A16618',
+      },
+      fontFamily: {
+        display: ['"Space Grotesk"', 'sans-serif'],
+        body: ['"IBM Plex Sans"', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'monospace'],
+      },
+      borderRadius: {
+        none: '0',
+        sm: '2px',
+        DEFAULT: '4px',
+        md: '4px',
+        lg: '4px',
+        xl: '4px',
+        '2xl': '4px',
+        '3xl': '4px',
+        full: '9999px',
+      },
     },
   },
   plugins: [],

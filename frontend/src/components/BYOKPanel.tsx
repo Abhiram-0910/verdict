@@ -146,15 +146,15 @@ export function BYOKPanel({ onChange }: BYOKPanelProps) {
   }, [provider, debouncedKey, model, modelsList, error, onChange]);
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 mt-4 shadow-xl text-left animate-in slide-in-from-top-2 fade-in duration-300">
-      <div className="flex items-center gap-2 mb-4">
-        <Key className="w-5 h-5 text-indigo-400" />
-        <h3 className="text-sm font-semibold text-slate-200">Use your own API key</h3>
+    <div className="bg-white border border-line rounded p-5 mt-4 shadow-sm text-left animate-in slide-in-from-top-2 fade-in duration-300">
+      <div className="flex items-center gap-2 mb-5">
+        <Key className="w-5 h-5 text-signal" />
+        <h3 className="text-base font-semibold text-ink font-display">Use your own API key</h3>
       </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1">Provider</label>
+          <label className="block text-sm font-medium text-ink/70 mb-1.5">Provider</label>
           <select 
             value={provider}
             onChange={(e) => {
@@ -162,7 +162,7 @@ export function BYOKPanel({ onChange }: BYOKPanelProps) {
               setModel('');
               setModelsList([]);
             }}
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition-colors"
+            className="w-full bg-paper border border-line rounded px-3 py-2.5 text-ink text-sm transition-colors"
           >
             <option value="openai">OpenAI</option>
             <option value="anthropic">Anthropic</option>
@@ -173,24 +173,24 @@ export function BYOKPanel({ onChange }: BYOKPanelProps) {
         </div>
         
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1">API Key</label>
+          <label className="block text-sm font-medium text-ink/70 mb-1.5">API Key</label>
           <input 
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder={provider === 'openrouter' ? "Optional for free models..." : "sk-..."}
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition-colors placeholder:text-slate-600"
+            className="w-full bg-paper border border-line rounded px-3 py-2.5 text-ink text-sm transition-colors placeholder:text-ink/40"
           />
         </div>
       </div>
 
       <div className="relative">
-        <label className="block text-xs font-medium text-slate-400 mb-1">Vision Model</label>
+        <label className="block text-sm font-medium text-ink/70 mb-1.5">Vision Model</label>
         <select 
           value={model}
           onChange={(e) => setModel(e.target.value)}
           disabled={isLoading || modelsList.length === 0}
-          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50 appearance-none"
+          className="w-full bg-paper border border-line rounded px-3 py-2.5 text-ink text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed appearance-none"
         >
           {modelsList.length === 0 && !isLoading && (
             <option value="">{error ? '—' : 'Enter API key to load models...'}</option>
@@ -200,16 +200,16 @@ export function BYOKPanel({ onChange }: BYOKPanelProps) {
           ))}
         </select>
         {isLoading && (
-          <div className="absolute right-3 top-7">
-            <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />
+          <div className="absolute right-3 top-[34px]">
+            <Loader2 className="w-4 h-4 text-signal animate-spin" />
           </div>
         )}
       </div>
 
       {error && (
-        <div className="mt-3 flex items-start gap-2 text-rose-400 bg-rose-950/30 px-3 py-2 rounded-lg border border-rose-900/50">
+        <div className="mt-4 flex items-start gap-2 text-flag-critical bg-flag-critical/10 px-4 py-3 rounded border border-flag-critical/20">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-          <span className="text-xs font-medium leading-relaxed">{error}</span>
+          <span className="text-sm font-medium leading-relaxed">{error}</span>
         </div>
       )}
     </div>
