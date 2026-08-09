@@ -14,6 +14,25 @@
 
 ## Session Log
 
+### Session 14 — 2026-08-09 (Verification & Cleanup)
+**Goal:** Verify DB migration status, fix the Supabase keepalive cron, and run the 4-item live verification round for error handling.
+
+**Completed:**
+- [x] Confirmed `visual_status` and `copy_status` existed in the live DB; migration had successfully applied prior to restart.
+- [x] Identified root cause of Supabase auto-pause: free tier projects pause on low aggregate weekly activity, not just 7 days of silence. The previous 3-day raw Postgres `SELECT 1` cron left too many gaps.
+- [x] Fixed keepalive cron: switched to a daily (`0 9 * * *`) REST API ping using the `SUPABASE_ANON_KEY` against `/rest/v1/audit_job?limit=1`. Documented the fix in `TODO.md` and removed the service key from the workflow.
+- [x] Ran 4-item verification round via a Playwright test script (`verify-4-items.ts`):
+  - **Capture Timeout:** Verified `TIMEOUT` DB status and UI error string ("The website took too long to load...").
+  - **AI_MALFORMED_OUTPUT:** Verified `visualStatus: complete`, `copyStatus: failed`, `failureReason: AI_MALFORMED_OUTPUT`, and UI "Partial Results" banner rendering.
+  - **Mixed-Agent Failure:** Verified `visualStatus: complete`, `copyStatus: failed`, `failureReason: UNKNOWN`, and UI "Partial Results" banner rendering alongside successful visual findings.
+  - **Live Rate-Limit:** Exhausted the 5 free audits and verified the rate-limit string and BYOK panel auto-expansion on the Landing page.
+- [x] Cleaned up temporary test scripts (`check-db.ts`, `stall-server.ts`, `verify-4-items.ts`) to keep the repo clean.
+- [x] Reverted `session.ts` timeout override.
+
+**Next session should start with:**
+- Proceed to the Full Visual/UX Design Pass, or Backlog Review if priorities change.
+- Commit current work to follow the new end-of-session commit rule.
+
 ### Session 13 — 2026-08-08 (BYOK Step 2b: Frontend UI + Error Handling) [RETROACTIVE]
 **Goal:** Build the frontend BYOK UI (model picker + key input panel), wire error translations, and add partial-result/rate-limit recovery flows to the Report page.
 

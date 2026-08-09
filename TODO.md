@@ -11,7 +11,7 @@
     # xAI /models test
     Invoke-RestMethod -Uri "http://localhost:3001/api/providers/models" -Method Post -ContentType "application/json" -Body '{"provider": "xai", "apiKey": "YOUR_XAI_KEY"}'
     ```
-- [ ] **Plain-Language Error Handling:** Translate internal failures (TIMEOUT, BLOCKED, AI_RATE_LIMIT, etc.) into user-readable messages. Specifically show exact reset timestamp on rate-limit hits and offer BYOK as a fallback.
+- [x] **Plain-Language Error Handling:** Done. Translated internal failures (TIMEOUT, BLOCKED, AI_RATE_LIMIT, etc.) into user-readable messages. Shows exact reset timestamp on rate-limit hits and offers BYOK as a fallback. Verified with 4-item test round (capture-timeout, malformed-AI, live rate-limit UI, mixed-agent-failure).
 - [ ] **Full Visual/UX Design Pass:** Execute a comprehensive frontend design overhaul using the `frontend-design` skill.
 - [ ] **Backlog Review:** Evaluate every existing deferred item (orphaned job recovery, 0-findings vs. critique-failed, competitor comparison, etc.) to explicitly decide what's in-scope for this phase vs future work.
 - [ ] **Security Review Pass:** Run a structured OWASP-style review (injection, hardcoded secrets, auth gaps, CORS, insecure deserialization) as an explicitly instructed task.
