@@ -9,10 +9,10 @@ function App() {
         <Route path="/" element={<Landing />} />
         <Route path="/audit/:id" element={<Report />} />
         <Route path="*" element={
-          <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-300">
-            <h1 className="text-4xl font-bold mb-4 text-slate-100">Verdict MVP</h1>
-            <p className="text-slate-400 mb-8 max-w-md text-center">
-              The landing page is not built yet. Navigate directly to <code className="bg-slate-800 px-2 py-1 rounded">/audit/&lt;uuid&gt;</code> to view a report.
+          <div className="min-h-screen bg-paper flex flex-col items-center justify-center text-ink/70">
+            <h1 className="text-4xl font-bold mb-4 text-ink">Verdict MVP</h1>
+            <p className="mb-8 max-w-md text-center">
+              The landing page is not built yet. Navigate directly to <code className="bg-line/50 text-ink font-mono px-2 py-1 rounded">/audit/&lt;uuid&gt;</code> to view a report.
             </p>
           </div>
         } />

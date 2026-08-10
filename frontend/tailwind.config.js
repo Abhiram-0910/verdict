@@ -12,7 +12,7 @@ export default {
         line: '#DADFE3',
         signal: '#2955A3',
         'flag-critical': '#C63B2E',
-        'flag-warning': '#A16618',
+        'flag-warning': '#9D6214',
       },
       fontFamily: {
         display: ['"Space Grotesk"', 'sans-serif'],

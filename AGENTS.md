@@ -14,6 +14,20 @@
 
 ## Session Log
 
+### Session 16 — 2026-08-10 (Full Visual/UX Design Pass Phase 2, Round 1)
+**Goal:** Re-skin the Report.tsx components (ScoreCard, ActionItemCard, etc.) to the clinical/diagnostic token system (`paper`, `ink`, `line`, `signal`, etc.) without altering any core logic. Ensure severity differentiation meets WCAG "not color alone" requirements, and fix the ambiguity between a genuinely failed agent run versus a legacy report.
+
+**Completed:**
+- [x] **Theme Conversion:** Transitioned `Report.tsx` entirely off `slate` colors to the light/clinical `paper` (FAFAFA) and `ink` (15181C) tokens. Updated `App.tsx` fallback route to correctly use the new theme to fix a 404 styling bug.
+- [x] **Severity Differentiation & Icons:** Differentiated findings by color (`flag-critical`, `flag-warning`), strict mono badge text labels (`CRITICAL`, `WARNING`, `INFO`), and shape using Lucide icons (`OctagonAlert`, `TriangleAlert`, `Info`). The icons render alongside the numbered badge on desktop but are correctly hidden on mobile (`sm:block`) to conserve horizontal space.
+- [x] **ScoreCard Design & Failure State:** Stripped icons and color backgrounds from `ScoreCard.tsx` in favor of a strict typographic hierarchy (`signal` for overall score, `ink` for sub-scores). Wired `ScoreCard` to accept a `status` prop so that a `failed` run starkly displays "FAILED" in `flag-critical` text, eliminating the ambiguity with legacy/missing `null` "N/A" results.
+- [x] **WCAG Contrast Tuning:** Recalculated composite backgrounds when `flag-warning` was layered at 5% opacity on top of `paper`. Since the original `#A16618` dropped to 4.29:1 over `#F6F3EF`, I programmatically darkened it to `#9D6214`, achieving a passing 4.53:1 contrast ratio.
+- [x] **Focus Ring Validation:** Programmatically confirmed via Playwright's `getComputedStyle` that the focus ring perfectly renders as `box-shadow: rgb(250, 250, 250) 0px 0px 0px 2px, rgb(41, 85, 163) 0px 0px 0px 4px` on the interactive BYOK button after a synthetic Tab press. Removed an anti-pattern `tabIndex={0}` on the non-interactive `ActionItemCard`s.
+- [x] Cleaned up all scratch testing scripts and committed the Phase 2 Round 1 result.
+
+**Next session should start with:**
+- Proceed to Phase 2 Round 2: The New UI (screenshot annotation) or move directly to the Backlog Review / Security Review.
+
 ### Session 15 — 2026-08-09 (Verification Follow-up & Task 2 Closure)
 **Goal:** Run final definitive proof checks for the remaining two plain-language error handling scenarios (rate limit string rendering and mixed-agent visual findings content) before officially closing Task 2.
 
