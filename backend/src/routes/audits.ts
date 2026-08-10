@@ -105,9 +105,14 @@ export default async function auditsRoutes(fastify: FastifyInstance) {
 
         // Determine if either agent failed, to pass the reason back to the frontend.
         // We prioritize AI_RATE_LIMIT so the frontend can trigger the BYOK fallback.
+        // TIMEOUT from a provider adapter is remapped to AI_TIMEOUT to distinguish
+        // "the AI call hung" from "the website didn't load" (capture-layer TIMEOUT).
+        const remapAgentReason = (reason: string) =>
+          reason === 'TIMEOUT' ? 'AI_TIMEOUT' : reason;
+
         let agentFailureReason: string | null = null;
-        if (!visualResult.success) agentFailureReason = visualResult.reason;
-        if (!copyResult.success) agentFailureReason = copyResult.reason;
+        if (!visualResult.success) agentFailureReason = remapAgentReason(visualResult.reason);
+        if (!copyResult.success) agentFailureReason = remapAgentReason(copyResult.reason);
         if (!visualResult.success && visualResult.reason === 'AI_RATE_LIMIT') agentFailureReason = 'AI_RATE_LIMIT';
         if (!copyResult.success && copyResult.reason === 'AI_RATE_LIMIT') agentFailureReason = 'AI_RATE_LIMIT';
 
