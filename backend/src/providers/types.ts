@@ -16,6 +16,7 @@ export type ProviderErrorReason =
   | 'FETCH_FAILED'         // Network error reaching the provider's API
   | 'DB_WRITE_FAILED'      // Persistence failure (used by callers, not providers)
   | 'INVALID_API_KEY'      // 401 / 403 from provider
+  | 'TIMEOUT'              // AbortController fired — hung upstream call
   | 'UNKNOWN';             // Anything else
 
 // ---------------------------------------------------------------------------

@@ -109,7 +109,6 @@ export type CaptureFailure = {
     | 'NAVIGATION_ERROR'
     | 'SCREENSHOT_TOO_LARGE'
     | 'UPLOAD_FAILED'
-    | 'AXE_FAILED'
     | 'DB_WRITE_FAILED';
   detail: string;
   /** Present only when the capture succeeded but persistence failed. */
@@ -375,12 +374,14 @@ async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
         }),
       );
     } catch (err) {
-      // axe failures are hard — return explicitly rather than silently skipping
-      return {
-        error: true,
-        reason: 'AXE_FAILED',
-        detail: err instanceof Error ? err.message : String(err),
-      };
+      // axe injection/evaluation failures are soft — e.g. pages with strict CSP
+      // that block inline scripts. Degrade to empty findings and mark partial
+      // rather than discarding valid screenshots and Web Vitals.
+      if (!partialState.value) {
+        partialState.value = true;
+        partialState.reason = 'AXE_FAILED';
+      }
+      // accessibilityViolations stays [] — empty findings, not a hard failure
     }
 
     // ── Success ───────────────────────────────────────────────────────────────

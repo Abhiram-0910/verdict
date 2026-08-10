@@ -20,6 +20,10 @@ import { ProviderFetchError } from './openaiCompatible.js';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const ANTHROPIC_VERSION = '2023-06-01';
 
+/** Per-call timeout for critique() — prevents a hung upstream from
+ *  blocking the single-concurrency Playwright queue indefinitely. */
+const CRITIQUE_TIMEOUT_MS = 60_000; // 60 s
+
 interface CacheEntry {
   models: ModelInfo[];
   fetchedAt: number;
@@ -144,11 +148,15 @@ export class AnthropicProvider implements AIProvider {
       messages.push({ role: 'user', content: req.prompt });
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CRITIQUE_TIMEOUT_MS);
+
     let res: Response;
     try {
       res = await fetch(`${this.baseUrl}/messages`, {
         method: 'POST',
         headers: this.buildHeaders(req.apiKey),
+        signal: controller.signal,
         body: JSON.stringify({
           model: req.modelId,
           max_tokens: 4096,
@@ -165,8 +173,14 @@ export class AnthropicProvider implements AIProvider {
         }),
       });
     } catch (err: unknown) {
+      clearTimeout(timeoutId);
+      if (err instanceof Error && err.name === 'AbortError') {
+        return { success: false, reason: 'TIMEOUT', detail: `Anthropic critique() timed out after ${CRITIQUE_TIMEOUT_MS}ms` };
+      }
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, reason: 'FETCH_FAILED', detail: `Network error: ${msg}` };
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     if (!res.ok) {

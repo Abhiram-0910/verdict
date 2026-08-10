@@ -5,7 +5,7 @@ import { getProvider } from '../providers/index.js';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { ByokContext } from './visualCritique.js';
 
-export type CopyCritiqueFailureReason = 'AI_RATE_LIMIT' | 'AI_MALFORMED_OUTPUT' | 'DB_WRITE_FAILED' | 'UNKNOWN' | 'INVALID_API_KEY' | 'FETCH_FAILED';
+export type CopyCritiqueFailureReason = 'AI_RATE_LIMIT' | 'AI_MALFORMED_OUTPUT' | 'DB_WRITE_FAILED' | 'UNKNOWN' | 'INVALID_API_KEY' | 'FETCH_FAILED' | 'TIMEOUT';
 
 const copyFindingSchema = z.object({
   category: z.string(),

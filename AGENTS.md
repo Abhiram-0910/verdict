@@ -1,9 +1,9 @@
 # AGENTS.md — Session Handoff Log
 
 ## Project State
-**Last updated:** 2026-08-08
+**Last updated:** 2026-08-10
 **Current branch:** main
-**Overall status:** BYOK Steps 1–2b complete and committed (`88ba51e`). Frontend BYOK UI (model picker, key input, BYOKPanel) + plain-language error handling complete. Migration `0001` (visualStatus/copyStatus columns) generated — push-to-live status UNKNOWN (DB was auto-paused at time of restart; must verify on next session start). 4-item verification round (capture-timeout retest, malformed-AI reason-code check, live rate-limit UI check, mixed-agent-failure test) not yet started.
+**Overall status:** Backlog Review complete. Three bugs promoted and fixed (AXE_FAILED degradation, OpenRouter audio-model filter, critique() AbortController timeout). Phase 2 Round 1 design pass committed. Security Review and E2E re-test next.
 
 ---
 
@@ -13,6 +13,20 @@
 ---
 
 ## Session Log
+
+### Session 17 — 2026-08-10 (Backlog Review + Bug Fixes)
+**Goal:** Backlog review, doc cleanup, and three contained bug fixes that were promoted from backlog to active scope.
+
+**Completed:**
+- [x] **TODO.md housekeeping:** Moved resolved items (Supabase keepalive fix, 0-findings vs. critique-failed) from Known Bugs/Backlog into Completed. Cleared Known Bugs section. Marked Backlog Review sprint item as done.
+- [x] **AXE_FAILED degradation (`session.ts`):** Changed axe-core injection/evaluation failure from a hard `CaptureFailure` (discarding screenshots + Web Vitals) to a soft degradation: `partial=true`, `partialReason='AXE_FAILED'`, `accessibilityViolations=[]`. Screenshots and Web Vitals still saved. Removed `AXE_FAILED` from the `CaptureFailure.reason` union. Live-verified: CSP server blocked axe injection, 8022-byte screenshot still captured successfully.
+- [x] **OpenRouter vision filter (`openrouter.ts`):** Corrected the lyria-3-pro-preview false positive. Root cause: lyria has `output_modalities: ["text","audio"]` — the `"text"` entry is conditioning metadata, not a JSON response. The correct exclusion is: any model with `"audio"` in `output_modalities` is not a text critic. Added `hasAudioOutput` check. Live-verified against live OpenRouter `/v1/models`: lyria excluded, 235 genuine vision models retained.
+- [x] **critique() AbortController timeout:** Added 60s `AbortController`-based timeout to all four provider adapters. OpenAI-compatible base class: wraps `doCritique` per-attempt; AbortError re-thrown for parent to classify as `TIMEOUT`. OpenRouter: `signal` forwarded to `fetch`. Anthropic: own `AbortController` on the `/messages` fetch. Gemini: `Promise.race` against a 60s sentinel (SDK has no native abort support). Added `TIMEOUT` to `ProviderErrorReason` union and to both agent failure reason types. Live-verified: hung server returned `reason=TIMEOUT` in exactly 60004ms.
+- [x] `npm run typecheck` — 0 errors. `npm test` — 4/4 pass.
+
+**Next session should start with:**
+- Security Review Pass (OWASP-style review).
+- Full End-to-End Re-test before deployment.
 
 ### Session 16 — 2026-08-10 (Full Visual/UX Design Pass Phase 2, Round 1)
 **Goal:** Re-skin the Report.tsx components (ScoreCard, ActionItemCard, etc.) to the clinical/diagnostic token system (`paper`, `ink`, `line`, `signal`, etc.) without altering any core logic. Ensure severity differentiation meets WCAG "not color alone" requirements, and fix the ambiguity between a genuinely failed agent run versus a legacy report.

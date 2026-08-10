@@ -5,7 +5,7 @@ import { getProvider } from '../providers/index.js';
 import type { ProviderName } from '../providers/types.js';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
-export type VisualCritiqueFailureReason = 'AI_RATE_LIMIT' | 'AI_MALFORMED_OUTPUT' | 'FETCH_FAILED' | 'DB_WRITE_FAILED' | 'UNKNOWN' | 'INVALID_API_KEY';
+export type VisualCritiqueFailureReason = 'AI_RATE_LIMIT' | 'AI_MALFORMED_OUTPUT' | 'FETCH_FAILED' | 'DB_WRITE_FAILED' | 'UNKNOWN' | 'INVALID_API_KEY' | 'TIMEOUT';
 
 const visualFindingSchema = z.object({
   category: z.string(),

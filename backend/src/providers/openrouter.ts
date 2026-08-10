@@ -3,7 +3,12 @@
  * OpenRouter provider adapter.
  *
  * Model list: public endpoint — no API key required for listModels().
- * Vision detection: architecture.input_modalities array — check for "image".
+ * Vision detection:
+ *   1. architecture.input_modalities must include "image"
+ *   2. architecture.output_modalities must NOT include "audio"
+ *      — lyria-class models (e.g. lyria-3-pro-preview) have output_modalities
+ *        ["text","audio"]. The "text" entry is just metadata; real output is audio.
+ *        Excluding models with audio output prevents downstream json_object parse failures.
  * This is documented in the OpenRouter API schema (not an implicit proxy).
  *
  * Critique: standard OpenAI-compatible chat/completions endpoint,
@@ -35,7 +40,12 @@ export class OpenRouterProvider extends OpenAICompatibleProvider {
     const id = raw['id'];
     if (typeof id !== 'string' || !id) return null;
 
-    // architecture.input_modalities: string[]
+    // architecture.input_modalities: string[] — must include "image"
+    // architecture.output_modalities: string[] — must NOT include "audio"
+    // Lyria-class models have output_modalities: ["text", "audio"]. The "text" entry
+    // is metadata (conditioning prompt echoed back), not a structured JSON response.
+    // Their actual output is audio, making them unusable for JSON critique.
+    // Excluding any model with "audio" in output_modalities correctly catches this.
     const architecture = raw['architecture'];
     let supportsVision = false;
     if (
@@ -44,10 +54,15 @@ export class OpenRouterProvider extends OpenAICompatibleProvider {
       !Array.isArray(architecture)
     ) {
       const arch = architecture as Record<string, unknown>;
-      const modalities = arch['input_modalities'];
-      if (Array.isArray(modalities)) {
-        supportsVision = modalities.includes('image');
-      }
+      const inputModalities = arch['input_modalities'];
+      const outputModalities = arch['output_modalities'];
+
+      const hasImageInput = Array.isArray(inputModalities) && inputModalities.includes('image');
+      // Exclude if output modalities include 'audio' — these are music/audio generation
+      // models that cannot produce structured JSON critique responses.
+      const hasAudioOutput = Array.isArray(outputModalities) && outputModalities.includes('audio');
+
+      supportsVision = hasImageInput && !hasAudioOutput;
     }
 
     return {
@@ -57,7 +72,7 @@ export class OpenRouterProvider extends OpenAICompatibleProvider {
     };
   }
 
-  protected override async doCritique(req: CritiqueRequest): Promise<CritiqueResult> {
+  protected override async doCritique(req: CritiqueRequest, signal?: AbortSignal): Promise<CritiqueResult> {
     const messages: unknown[] = [];
 
     const systemInstruction = req.systemInstruction
@@ -93,6 +108,7 @@ export class OpenRouterProvider extends OpenAICompatibleProvider {
           'HTTP-Referer': 'https://verdict.com',
           'X-Title': 'Verdict',
         },
+        signal,
         body: JSON.stringify({
           model: req.modelId,
           max_tokens: 4000,
@@ -101,6 +117,8 @@ export class OpenRouterProvider extends OpenAICompatibleProvider {
         }),
       });
     } catch (err: unknown) {
+      // Re-throw AbortError so the parent critique() can classify it as TIMEOUT.
+      if (err instanceof Error && err.name === 'AbortError') throw err;
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, reason: 'FETCH_FAILED', detail: `Network error: ${msg}` };
     }

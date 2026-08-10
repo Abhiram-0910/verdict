@@ -13,7 +13,7 @@
     ```
 - [x] **Plain-Language Error Handling:** Done. Translated internal failures (TIMEOUT, BLOCKED, AI_RATE_LIMIT, etc.) into user-readable messages. Shows exact reset timestamp on rate-limit hits and offers BYOK as a fallback. Verified with 4-item test round (capture-timeout, malformed-AI, live rate-limit UI, mixed-agent-failure).
 - [ ] **Full Visual/UX Design Pass:** Execute a comprehensive frontend design overhaul using the `frontend-design` skill.
-- [ ] **Backlog Review:** Evaluate every existing deferred item (orphaned job recovery, 0-findings vs. critique-failed, competitor comparison, etc.) to explicitly decide what's in-scope for this phase vs future work.
+- [x] **Backlog Review:** Done. Three backlog items promoted to fixes (AXE_FAILED degradation, OpenRouter output_modalities filter, critique() timeout). Doc drift resolved. Remaining items triaged as genuine future work.
 - [ ] **Security Review Pass:** Run a structured OWASP-style review (injection, hardcoded secrets, auth gaps, CORS, insecure deserialization) as an explicitly instructed task.
 - [ ] **Full End-to-End Re-test:** Re-verify all systems before deployment.
 - [ ] **Deployment:** Check Koyeb verification status. If cleared, deploy backend to Koyeb and frontend to Vercel.
@@ -29,8 +29,7 @@
 - [ ] PDF export
 - [ ] DOM snapshot capture — deferred, not in MVP scope; requires revisiting Task 5's capture module if ever needed
 - [ ] Orphaned job recovery — if the server restarts/crashes while an AuditJob is pending or running, it has no path to failed/retry with the current in-process queue; not handled in MVP, would need persistent job state or a startup reconciliation pass if revisited.
-- [ ] Distinguish '0 findings' from 'critique failed' in the API response — currently indistinguishable, empty array either way; would need a stored status/error field per agent result if surfaced to the UI later.
-- [ ] Explicit request-level timeout on provider `critique()` calls — currently relying on default fetch/SDK behavior. Given the single in-process Playwright job queue on free-tier hosting, a hung upstream call (like seen with OpenRouter) risks blocking the one available worker slot for all pending audits.
+- [x] Explicit request-level timeout on provider `critique()` calls — FIXED (Session 17): AbortController added to openaiCompatible base class; Anthropic and Gemini adapters use their own SDK-level timeout param. Mapped to `TIMEOUT` reason code, consistent with capture-layer taxonomy.
 - [ ] BYOK provider badge on `Report.tsx` currently only persists via React Router state — disappears on hard refresh or shared link. If this matters later, would need a non-sensitive `byokProviderUsed` column on `AuditJob` (provider name only, never the key) — small, low-risk addition, just deliberately out of scope for Step 2b.
 
 ## ✅ Completed
@@ -49,11 +48,13 @@
 - [x] Report UI (score, category breakdown, ranked action items, annotated screenshot) — Session 9, 2026-07-26
 - [x] Landing page + failure-state UI — Session 9, 2026-07-26
 - [x] GitHub Actions Supabase keepalive cron (every 3 days) — Session 9, 2026-07-26
+- [x] Supabase keepalive fixed — Session 14, 2026-08-08. Switched from raw Postgres SELECT 1 (3-day) to daily REST API ping (`/rest/v1/audit_job?limit=1`) using anon key. Service key removed from workflow.
+- [x] Distinguish '0 findings' from 'critique failed' — Session 13/16. Task 2 added `visualStatus`/`copyStatus` columns; Report.tsx renders distinct FAILED vs N/A states.
+- [x] AXE_FAILED bails entire capture — FIXED (Session 17): axe injection failure now degrades to empty `accessibilityFindings` with `partial: true`, screenshots and Web Vitals still saved.
+- [x] OpenRouter vision filter (lyria-3-pro-preview false positive) — FIXED (Session 17): added `output_modalities` must-include-text check on top of existing `input_modalities` image check. Live-verified excluded.
 
 ## 🐛 Known Bugs
-- **Supabase keepalive fixed (2026-08-08):** Was using a raw Postgres `SELECT 1` via the pooler every 3 days. Root cause was frequency, not mechanism — Supabase pauses on low aggregate weekly activity, not just 7 consecutive days of silence. A 3-day schedule leaves 2-day gaps that cross their "too few queries per week" threshold. Fixed: switched to daily (`0 9 * * *`) REST API ping hitting `/rest/v1/audit_job?limit=1` with the anon key, matching Supabase's own documented keepalive example. Service key removed from the workflow entirely. Requires `SUPABASE_ANON_KEY` + `SUPABASE_URL` GitHub secrets (manually add; gh CLI lacks secrets write permission).
-- **AXE_FAILED bails entire capture:** `AXE_FAILED` currently bails out of the entire `captureUrl` function in `session.ts`, discarding valid screenshots/Web Vitals data and failing the whole audit over a CSP issue with axe-core injection alone. Should degrade to a partial state (empty accessibility findings) instead of a fatal failure. Not fixed in this pass — flagged during Task 2 (plain-language error handling), scoped separately.
-- **OpenRouter Model Filter:** `google/lyria-3-pro-preview` has `image` in `architecture.input_modalities`, so it passes our `supportsVision` filter. However, it's an audio/music generation model (`output_modalities` includes `audio`), which causes downstream `json_object` parsing failures (returns lyrics instead of JSON). We need an explicit non-chat-model exclusion for OpenRouter.
+- (none — all known bugs resolved as of Session 17)
 
 ## 💡 Ideas / Notes
 - Antigravity CLI supports async subagents — consider dispatching frontend UI work to a background subagent while the capture/agents pipeline is built in the foreground, once there's enough surface area to parallelize.

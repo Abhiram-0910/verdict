@@ -27,6 +27,10 @@ import { ProviderFetchError } from './openaiCompatible.js';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
+/** Per-call timeout for critique() — prevents a hung upstream from
+ *  blocking the single-concurrency Playwright queue indefinitely. */
+const CRITIQUE_TIMEOUT_MS = 60_000; // 60 s
+
 // Exclusion patterns: if a model name contains any of these substrings,
 // it is NOT a vision-capable generative model and must be excluded.
 const EXCLUSION_PATTERNS: readonly string[] = ['embedding', 'aqa', 'tts'];
@@ -151,17 +155,27 @@ export class GeminiProvider implements AIProvider {
     let attempt = 0;
     while (attempt <= maxRetries) {
       try {
-        const response = await ai.models.generateContent({
-          model: req.modelId,
-          config: {
-            systemInstruction: req.systemInstruction,
-            responseMimeType: 'application/json',
-            responseJsonSchema: req.jsonSchema,
-          } as any,
-          contents: [{ role: 'user', parts }],
-        });
+        const TIMED_OUT = Symbol('TIMED_OUT');
+        const raceResult = await Promise.race([
+          ai.models.generateContent({
+            model: req.modelId,
+            config: {
+              systemInstruction: req.systemInstruction,
+              responseMimeType: 'application/json',
+              responseJsonSchema: req.jsonSchema,
+            } as any,
+            contents: [{ role: 'user', parts }],
+          }),
+          new Promise<typeof TIMED_OUT>((resolve) =>
+            setTimeout(() => resolve(TIMED_OUT), CRITIQUE_TIMEOUT_MS)
+          ),
+        ]);
 
-        const text = response.text ?? null;
+        if (raceResult === TIMED_OUT) {
+          return { success: false, reason: 'TIMEOUT', detail: `Gemini critique() timed out after ${CRITIQUE_TIMEOUT_MS}ms` };
+        }
+
+        const text = raceResult.text ?? null;
         if (!text) {
           return { success: false, reason: 'AI_MALFORMED_OUTPUT', detail: 'Gemini returned empty text response' };
         }

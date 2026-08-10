@@ -15,6 +15,10 @@ import type { AIProvider, CritiqueRequest, CritiqueResult, ModelInfo, ProviderEr
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
+/** Per-call timeout for critique() — prevents a hung upstream from
+ *  blocking the single-concurrency Playwright queue indefinitely. */
+const CRITIQUE_TIMEOUT_MS = 60_000; // 60 s
+
 interface CacheEntry {
   models: ModelInfo[];
   fetchedAt: number;
@@ -107,8 +111,27 @@ export abstract class OpenAICompatibleProvider implements AIProvider {
     let attempt = 0;
 
     while (attempt <= maxRetries) {
-      const result = await this.doCritique(req);
-      
+      // Fresh AbortController per attempt — a fired signal can't be reused.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), CRITIQUE_TIMEOUT_MS);
+
+      let result: CritiqueResult;
+      try {
+        result = await this.doCritique(req, controller.signal);
+      } catch (err: unknown) {
+        // AbortController fired — treat as TIMEOUT, consistent with capture layer.
+        const isAbort = err instanceof Error && err.name === 'AbortError';
+        result = {
+          success: false,
+          reason: isAbort ? 'TIMEOUT' : 'FETCH_FAILED',
+          detail: isAbort
+            ? `critique() timed out after ${CRITIQUE_TIMEOUT_MS}ms`
+            : (err instanceof Error ? err.message : String(err)),
+        };
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
       if (!result.success && result.reason === 'AI_RATE_LIMIT') {
         if (attempt >= maxRetries) {
           return { success: false, reason: 'AI_RATE_LIMIT', detail: `Rate limit after ${maxRetries} retries` };
@@ -118,18 +141,19 @@ export abstract class OpenAICompatibleProvider implements AIProvider {
         attempt++;
         continue;
       }
-      
+
       return result;
     }
-    
+
     return { success: false, reason: 'UNKNOWN', detail: 'Unreachable' };
   }
 
   /**
    * Perform the actual fetch to chat/completions.
    * Overridden by OpenRouter to change the response_format.
+   * @param signal - AbortSignal from the parent critique() timeout controller.
    */
-  protected async doCritique(req: CritiqueRequest): Promise<CritiqueResult> {
+  protected async doCritique(req: CritiqueRequest, signal?: AbortSignal): Promise<CritiqueResult> {
     const messages: unknown[] = [];
 
     if (req.systemInstruction) {
@@ -162,6 +186,7 @@ export abstract class OpenAICompatibleProvider implements AIProvider {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${req.apiKey}`,
         },
+        signal,
         body: JSON.stringify({
           model: req.modelId,
           max_tokens: 4000,
@@ -177,6 +202,8 @@ export abstract class OpenAICompatibleProvider implements AIProvider {
         }),
       });
     } catch (err: unknown) {
+      // Re-throw AbortError so the parent critique() can classify it as TIMEOUT.
+      if (err instanceof Error && err.name === 'AbortError') throw err;
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, reason: 'FETCH_FAILED', detail: `Network error: ${msg}` };
     }
