@@ -14,9 +14,10 @@
 - [x] **Plain-Language Error Handling:** Done. Translated internal failures (TIMEOUT, BLOCKED, AI_RATE_LIMIT, etc.) into user-readable messages. Shows exact reset timestamp on rate-limit hits and offers BYOK as a fallback. Verified with 4-item test round (capture-timeout, malformed-AI, live rate-limit UI, mixed-agent-failure).
 - [x] **Full Visual/UX Design Pass:** Done. Bounding box overlay logic fully implemented over the desktop screenshot, with bi-directional hover states using the token system. Handled the desktop-image race condition in Playwright.
 - [x] **Backlog Review:** Done. Three backlog items promoted to fixes (AXE_FAILED degradation, OpenRouter output_modalities filter, critique() timeout). Doc drift resolved. Remaining items triaged as genuine future work.
-- [ ] **Security Review Pass:** Run a structured OWASP-style review (injection, hardcoded secrets, auth gaps, CORS, insecure deserialization) as an explicitly instructed task.
-- [ ] **Full End-to-End Re-test:** Re-verify all systems before deployment.
+- [x] **Security Review Pass:** Done. Full OWASP-style review executed. Discovered and fixed two critical vulnerabilities: (1) SSRF bypass allowing capture of internal/cloud-metadata via headless browser; fixed with strict DNS-level `page.route` network interception blocking RFC1918, CGNAT, and IPv6 loopback variants, and (2) rate limiter bypass via cookie deletion; fixed with server-side double-enforcement combining the existing `deviceId` cookie with an in-memory IP bucket powered by `trustProxy: true`. Both verified via live tests.
+- [x] **Full End-to-End Re-test:** Done. All 7 tests in `backend/tests/e2e-final.ts` passed successfully. Included fixes for UI strict mode locators and correct backend rate-limiter cleanup between test suites.
 - [ ] **Deployment:** Check Koyeb verification status. If cleared, deploy backend to Koyeb and frontend to Vercel.
+  - **Post-Deployment Verification:** Once live on Koyeb, confirm `trustProxy: true` securely derives `request.ip` from Koyeb's edge-set `X-Forwarded-For` and ignores client-spoofed headers. Test by sending a request with a forged `X-Forwarded-For` header directly against the live URL to ensure it has no effect on the observed rate-limiting IP.
 
 ## 🟡 Up Next (After Current Sprint)
 - (none — MVP features complete)

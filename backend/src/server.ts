@@ -33,6 +33,7 @@ async function reconcileOrphanedJobs() {
 
 export async function buildServer() {
   const app = Fastify({
+    trustProxy: true,
     logger: {
       // Redact apiKey fields so they can never appear in log lines,
       // regardless of which route or handler logs the request body.
@@ -49,7 +50,13 @@ export async function buildServer() {
   const frontendUrl = frontendUrlRaw.endsWith('/') ? frontendUrlRaw.slice(0, -1) : frontendUrlRaw;
 
   await app.register(cors, {
-    origin: frontendUrl,
+    origin: (origin, cb) => {
+      if (!origin || origin === frontendUrl || origin === 'http://127.0.0.1:3000') {
+        cb(null, true);
+        return;
+      }
+      cb(new Error("Not allowed"), false);
+    },
     credentials: true,
   });
 

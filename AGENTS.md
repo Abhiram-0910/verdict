@@ -3,7 +3,7 @@
 ## Project State
 **Last updated:** 2026-08-11
 **Current branch:** main
-**Overall status:** Phase 2 Round 2 design pass (Bounding Box Overlay) is completely built and verified. Security Review and E2E re-test next.
+**Overall status:** E2E Re-test complete. Ready for Deployment.
 
 ---
 
@@ -13,6 +13,30 @@
 ---
 
 ## Session Log
+
+### Session 20 — 2026-08-11 (Full E2E Re-Test)
+**Goal:** Run the full 7-step E2E verification suite before resuming deployment, diagnosing and resolving any integration drift caused by the styling pass and security fixes.
+
+**Completed:**
+- [x] **Test Harness Fixes:** Promoted DOM dumping (`global.currentPage`) to automatically trigger on test failures for better diagnostics. Reverted `copyCritique.ts` test whitespace modifications. Cleaned up dangling artifacts.
+- [x] **Locator Updates:** Fixed Playwright's strict mode violations on the UI locators. The styling pass repurposed the `.text-flag-warning` token to apply to both the rate limit banner and the finding badges. Updated tests to target precise semantic queries (e.g. `text=free audits`).
+- [x] **Rate Limiter Concurrency:** Diagnosed a cascading rate-limit failure in the E2E suite (`429 Too Many Requests` terminating tests early) back to the new in-memory `ipUsageMap` state bleeding between consecutive script runs on the single `127.0.0.1` bucket. Validated correct E2E behaviour by properly wiping process state between runs.
+- [x] **Full Green Run:** 7/7 tests passed: Default Path, BYOK Path, Rate Limit flow, Genuine Partial Failure, SSRF Localhost blocking, Mobile Viewport, and Score Card Rendering.
+
+**Next session should start with:**
+- Proceed to Deployment (Backend to Koyeb, Frontend to Vercel).
+- Follow up with the Post-Deployment verification of `trustProxy: true` against Koyeb's edge proxy.
+
+### Session 19 — 2026-08-11 (Security Review Pass 1)
+**Goal:** Conduct an OWASP-style adversarial security sweep across 7 areas (BYOK key handling, SQLi, CORS, rate-limiting, SSRF, info leakage, dependency audit) and patch critical findings.
+
+**Completed:**
+- [x] **Adversarial Sweep:** Probed API endpoints with malformed keys, SQL payloads, and XSS; all correctly rejected (HTTP 400/401) without crashing or leaking stack traces/paths. Verified 100% parameterised queries (no raw SQL concat). Confirmed strict CORS (`FRONTEND_URL` + `credentials: true`). Audited dependencies (false-positives/dev-deps only).
+- [x] **SSRF Fix (Critical):** Discovered the Playwright headless browser would blindly execute captures against internal network targets (e.g., `127.0.0.1`, `169.254.169.254`). Implemented strict DNS-level interception via `page.route('**/*', ...)` in `session.ts`, verifying resolved IPs against RFC1918, loopback (IPv4/IPv6), CGNAT (`100.64.0.0/10`), and cloud metadata ranges before allowing navigation. Verified against direct and redirect-based bypasses.
+- [x] **Rate Limiter Fix (Critical):** Discovered the cookie-based free-tier limiter could be infinitely bypassed simply by omitting the cookie. Added a secondary in-memory IP-based bucket to `rateLimit.ts` and enabled `trustProxy: true` in `server.ts` to read Koyeb's `X-Forwarded-For`. Implemented double-enforcement (both IP and cookie must pass). Verified the fix blocks cookie-droppers while still tracking state across naive IP rotations.
+
+**Next session should start with:**
+- Proceed to the Full End-to-End Re-test before deployment.
 
 ### Session 18 — 2026-08-11 (Full Visual/UX Design Pass Phase 2, Round 2)
 **Goal:** Implement screenshot bounding-box annotations, tying the backend `visualFindings.screenshotRegion` data to the frontend `Report.tsx` via bi-directional hover states.

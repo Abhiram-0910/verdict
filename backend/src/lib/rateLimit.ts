@@ -7,10 +7,23 @@ type UsageCookie = {
   resetAt: string;
 };
 
+// In-memory store for IP-based rate limiting
+const ipUsageMap = new Map<string, { count: number; resetAt: string }>();
+
+// Simple background cleanup to prevent unbounded memory growth
+setInterval(() => {
+  const now = new Date();
+  for (const [ip, usage] of ipUsageMap.entries()) {
+    if (now > new Date(usage.resetAt)) {
+      ipUsageMap.delete(ip);
+    }
+  }
+}, 60 * 60 * 1000); // Every hour
+
 /**
- * Checks the verdict_usage cookie for rate limiting.
- * Returns true if the request is allowed (and sets the updated cookie).
- * Returns false if the request is blocked.
+ * Checks both the verdict_usage cookie and the client IP for rate limiting.
+ * Both buckets must be under the limit to allow the request.
+ * Returns true if allowed, false if blocked.
  */
 export function checkAndConsumeRateLimit(request: FastifyRequest, reply: FastifyReply): boolean {
   const cookieStr = request.cookies['verdict_usage'];
@@ -43,7 +56,27 @@ export function checkAndConsumeRateLimit(request: FastifyRequest, reply: Fastify
     return false;
   }
 
+  // Double enforcement: Check IP bucket
+  const clientIp = request.ip || 'unknown';
+  let ipUsage = ipUsageMap.get(clientIp);
+  
+  if (ipUsage) {
+    const ipResetAt = new Date(ipUsage.resetAt);
+    if (now > ipResetAt) {
+      ipUsage = { count: 0, resetAt: usage.resetAt }; // align reset windows
+    }
+  } else {
+    ipUsage = { count: 0, resetAt: usage.resetAt };
+  }
+
+  if (ipUsage.count >= MAX_AUDITS) {
+    return false;
+  }
+
+  // Consume both
   usage.count += 1;
+  ipUsage.count += 1;
+  ipUsageMap.set(clientIp, ipUsage);
 
   // Set the updated cookie (valid for 30 days)
   reply.setCookie('verdict_usage', JSON.stringify(usage), {

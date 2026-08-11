@@ -4,7 +4,7 @@ import { ArrowRight, Loader2, Sparkles, AlertCircle, Key } from 'lucide-react';
 import { BYOKPanel } from '../components/BYOKPanel';
 import { HeroDemo } from '../components/HeroDemo';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3001';
 const SAMPLE_REPORT_ID = '437dc08d-e6b5-4c13-8a5e-a1f559c068ce';
 
 export function Landing() {

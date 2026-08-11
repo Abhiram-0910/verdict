@@ -6,7 +6,7 @@ import { ScoreCard } from '../components/ScoreCard';
 import { ActionItemCard } from '../components/ActionItemCard';
 import { Loader2, AlertCircle, Key } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3001';
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   openai: 'OpenAI',

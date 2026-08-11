@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Key, AlertCircle, Loader2 } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3001';
 
 type ProviderName = 'gemini' | 'openai' | 'anthropic' | 'xai' | 'openrouter';
 
