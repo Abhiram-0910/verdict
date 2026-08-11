@@ -12,11 +12,11 @@ const visualFindingSchema = z.object({
   description: z.string(),
   severity: z.enum(['high', 'medium', 'low']),
   screenshotRegion: z.object({
-    x: z.number(),
-    y: z.number(),
-    width: z.number(),
-    height: z.number()
-  }).partial().nullable().optional(),
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    width: z.number().min(0).max(1),
+    height: z.number().min(0).max(1)
+  }).nullable().optional(),
   confidence: z.number().min(0).max(1),
   reasoning: z.string()
 });
@@ -54,7 +54,9 @@ export async function runVisualCritique(auditJobId: string, desktopScreenshotUrl
   }
 
   const systemInstruction = "You are an expert UX/UI designer and conversion rate optimization specialist. Analyze the provided webpage screenshot for visual hierarchy, clutter, CTA visibility, and design aesthetics. Return your findings as a JSON array.";
-  const prompt = `Identify any visual issues that negatively impact user experience or conversion. Focus on high-level layout, contrast, spacing, and visual clarity. Do NOT critique the text itself.`;
+  const prompt = `Identify any visual issues that negatively impact user experience or conversion. Focus on high-level layout, contrast, spacing, and visual clarity. Do NOT critique the text itself.
+  
+If you can precisely locate the specific element being critiqued, provide its 'screenshotRegion' using a percentage-based coordinate system where x, y, width, and height are floats between 0.0 and 1.0 (with 0,0 at the top-left). If you cannot confidently and precisely locate it, or if the issue applies to the whole page, set 'screenshotRegion' to null. Do NOT approximate or guess a plausible-looking box.`;
 
   const providerName = byok?.provider || 'gemini';
   const apiKey = byok?.apiKey || process.env.GEMINI_API_KEY || '';
