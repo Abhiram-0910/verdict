@@ -24,6 +24,7 @@ export function Report() {
 
   const [data, setData] = useState<ReportPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeFindingId, setActiveFindingId] = useState<string | null>(null);
   const isMounted = useRef(true);
 
   useEffect(() => {
@@ -163,12 +164,50 @@ export function Report() {
         {captureResult?.desktopScreenshotUrl && (
           <section className="space-y-6">
             <h2 className="text-2xl font-bold text-ink">Captured View</h2>
-            <div className="rounded-xl overflow-hidden border border-line shadow-sm bg-paper">
+            <div className="rounded-xl overflow-hidden border border-line shadow-sm bg-paper relative">
               <img 
                 src={captureResult.desktopScreenshotUrl} 
                 alt="Desktop Capture" 
-                className="w-full h-auto object-cover opacity-90 hover:opacity-100 transition-opacity"
+                className="w-full h-auto object-cover opacity-90 transition-opacity relative z-0"
               />
+              {actionItems
+                .filter(item => item.findingType === 'visual')
+                .map(item => {
+                  const finding = data.visualFindings?.find(f => f.id === item.findingId);
+                  if (!finding || !finding.screenshotRegion) return null;
+                  
+                  const r = finding.screenshotRegion;
+                  const isActive = activeFindingId === item.id;
+                  
+                  let colorClass = 'border-line bg-line/10';
+                  if (item.estimatedImpact === 'high') colorClass = 'border-flag-critical bg-flag-critical/10';
+                  else if (item.estimatedImpact === 'medium') colorClass = 'border-flag-warning bg-flag-warning/10';
+                  
+                  if (isActive) {
+                    if (item.estimatedImpact === 'high') colorClass = 'border-flag-critical bg-flag-critical/20 ring-4 ring-flag-critical/10';
+                    else if (item.estimatedImpact === 'medium') colorClass = 'border-flag-warning bg-flag-warning/20 ring-4 ring-flag-warning/10';
+                    else colorClass = 'border-ink/50 bg-ink/10 ring-4 ring-ink/5';
+                  }
+
+                  return (
+                    <div
+                      key={`overlay-${item.id}`}
+                      aria-hidden="true"
+                      className={`absolute border-2 transition-all cursor-pointer ${colorClass} ${isActive ? 'z-10' : 'z-0 hover:z-10'}`}
+                      style={{
+                        left: `${r.x * 100}%`,
+                        top: `${r.y * 100}%`,
+                        width: `${r.width * 100}%`,
+                        height: `${r.height * 100}%`
+                      }}
+                      onMouseEnter={() => setActiveFindingId(item.id)}
+                      onMouseLeave={() => setActiveFindingId(null)}
+                      onClick={() => {
+                        document.getElementById(`action-item-${item.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }}
+                    />
+                  );
+                })}
             </div>
           </section>
         )}
@@ -210,7 +249,13 @@ export function Report() {
           ) : (
             <div className="flex flex-col gap-4">
               {actionItems.map(item => (
-                <ActionItemCard key={item.id} item={item} />
+                <ActionItemCard 
+                  key={item.id} 
+                  item={item} 
+                  isActive={activeFindingId === item.id}
+                  onMouseEnter={() => setActiveFindingId(item.id)}
+                  onMouseLeave={() => setActiveFindingId(null)}
+                />
               ))}
             </div>
           )}

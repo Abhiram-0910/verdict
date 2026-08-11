@@ -3,9 +3,13 @@ import { TriangleAlert, OctagonAlert, Info } from 'lucide-react';
 
 interface Props {
   item: ActionItem;
+  isActive?: boolean;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+  onClick?: () => void;
 }
 
-export function ActionItemCard({ item }: Props) {
+export function ActionItemCard({ item, isActive, onMouseEnter, onMouseLeave, onClick }: Props) {
   const getImpactStyles = (impact: string) => {
     switch (impact) {
       case 'high':
@@ -41,9 +45,16 @@ export function ActionItemCard({ item }: Props) {
 
   const s = getImpactStyles(item.estimatedImpact);
 
+  // When active, override the default border and add a subtle ring
+  const activeClass = isActive ? '!border-signal ring-4 ring-signal/10' : 'hover:border-signal/50';
+
   return (
     <div 
-      className={`flex gap-4 p-5 rounded-xl border-2 ${s.bg} ${s.border} transition-all hover:border-signal/50`}
+      id={`action-item-${item.id}`}
+      className={`flex gap-4 p-5 rounded-xl border-2 ${s.bg} ${s.border} transition-all cursor-pointer ${activeClass}`}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onClick={onClick}
     >
       <div className="flex-shrink-0 mt-1">
         <div className="flex items-center justify-center w-8 h-8 rounded border border-line bg-paper">

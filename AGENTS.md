@@ -1,9 +1,9 @@
 # AGENTS.md — Session Handoff Log
 
 ## Project State
-**Last updated:** 2026-08-10
+**Last updated:** 2026-08-11
 **Current branch:** main
-**Overall status:** Backlog Review complete. Three bugs promoted and fixed (AXE_FAILED degradation, OpenRouter audio-model filter, critique() AbortController timeout). Phase 2 Round 1 design pass committed. Security Review and E2E re-test next.
+**Overall status:** Phase 2 Round 2 design pass (Bounding Box Overlay) is completely built and verified. Security Review and E2E re-test next.
 
 ---
 
@@ -13,6 +13,21 @@
 ---
 
 ## Session Log
+
+### Session 18 — 2026-08-11 (Full Visual/UX Design Pass Phase 2, Round 2)
+**Goal:** Implement screenshot bounding-box annotations, tying the backend `visualFindings.screenshotRegion` data to the frontend `Report.tsx` via bi-directional hover states.
+
+**Completed:**
+- [x] **Schema Validation & Types:** Updated `types.ts` in the frontend to correctly accept `visualFindings` array. Confirmed `ActionItem.estimatedImpact` and `VisualFinding.severity` use the exact same enum (`high` | `medium` | `low`), allowing us to cleanly map the token colors. Confirmed polymorphic `ActionItem.findingId` cleanly maps back to the UUID in `visualFindings`.
+- [x] **State Lifting & Handlers:** Lifted `activeFindingId` to `Report.tsx` state and passed `isActive`, `onMouseEnter`, `onMouseLeave`, and `onClick` handlers down to `ActionItemCard.tsx`.
+- [x] **Overlay Architecture:** Wrapped the `desktopScreenshotUrl` `<img>` in a `relative` container and mapped over `visualFindings` to draw absolutely-positioned `<div aria-hidden="true" />` boxes using the percentage coordinates (`left: x*100%`, `top: y*100%`, `width: w*100%`, `height: h*100%`).
+- [x] **Bi-Directional Highlight Styling:** Reused the token system (`flag-critical`, `flag-warning`). In default state, boxes use 10% opacity. When `activeFindingId` matches, the box leaps to `z-10`, bumps to 20% opacity, and receives a `ring-4` glow, while the card simultaneously highlights. Clicking the box smoothly scrolls the page to the card.
+- [x] **Desktop Image Loading Race Condition:** Caught and resolved a tricky bug where Playwright screenshots showed a completely blank `Captured View` on desktop but a perfect render on mobile. Root cause: the external Supabase image took >2000ms to download, and the fixed `waitForTimeout(2000)` test harness was eagerly snapshotting the empty layout. Replaced with a robust `waitForFunction` checking the `img.complete && img.naturalHeight !== 0` property.
+- [x] **Verification:** Verified both visually and programmatically using Playwright `getComputedStyle()` that the `box-shadow` and `background-color` accurately transition into their active states when hovered.
+
+**Next session should start with:**
+- Proceed directly to the Security Review Pass (OWASP-style).
+
 
 ### Session 17 — 2026-08-10 (Backlog Review + Bug Fixes)
 **Goal:** Backlog review, doc cleanup, and three contained bug fixes that were promoted from backlog to active scope.

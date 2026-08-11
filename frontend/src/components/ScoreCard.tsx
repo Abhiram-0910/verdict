@@ -1,4 +1,3 @@
-import { ShieldAlert, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface Props {
   title: string;

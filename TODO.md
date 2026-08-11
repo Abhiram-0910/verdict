@@ -12,7 +12,7 @@
     Invoke-RestMethod -Uri "http://localhost:3001/api/providers/models" -Method Post -ContentType "application/json" -Body '{"provider": "xai", "apiKey": "YOUR_XAI_KEY"}'
     ```
 - [x] **Plain-Language Error Handling:** Done. Translated internal failures (TIMEOUT, BLOCKED, AI_RATE_LIMIT, etc.) into user-readable messages. Shows exact reset timestamp on rate-limit hits and offers BYOK as a fallback. Verified with 4-item test round (capture-timeout, malformed-AI, live rate-limit UI, mixed-agent-failure).
-- [ ] **Full Visual/UX Design Pass:** Execute a comprehensive frontend design overhaul using the `frontend-design` skill.
+- [x] **Full Visual/UX Design Pass:** Done. Bounding box overlay logic fully implemented over the desktop screenshot, with bi-directional hover states using the token system. Handled the desktop-image race condition in Playwright.
 - [x] **Backlog Review:** Done. Three backlog items promoted to fixes (AXE_FAILED degradation, OpenRouter output_modalities filter, critique() timeout). Doc drift resolved. Remaining items triaged as genuine future work.
 - [ ] **Security Review Pass:** Run a structured OWASP-style review (injection, hardcoded secrets, auth gaps, CORS, insecure deserialization) as an explicitly instructed task.
 - [ ] **Full End-to-End Re-test:** Re-verify all systems before deployment.
