@@ -442,6 +442,9 @@ async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
       partialReason: partialState.reason,
     };
   } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error(`[Capture Error] URL: ${url}, JobID: ${jobId} | Detail: ${detail}`);
+    
     // Route tagged errors to their specific failure reason
     if (err instanceof CaptureError) {
       return { error: true, reason: err.code, detail: err.message };
@@ -449,7 +452,7 @@ async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
     return {
       error: true,
       reason: 'NAVIGATION_ERROR',
-      detail: err instanceof Error ? err.message : String(err),
+      detail,
     };
   } finally {
     // Always close the browser — even on early return paths
