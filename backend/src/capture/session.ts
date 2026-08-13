@@ -233,7 +233,7 @@ async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
   try {
     browser = await chromium.launch({
       // Required for sandboxed container environments (Render, Docker)
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
 
     const context = await browser.newContext({ viewport: DESKTOP_VIEWPORT });
