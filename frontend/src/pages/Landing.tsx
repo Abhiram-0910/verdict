@@ -12,6 +12,7 @@ export function Landing() {
   const location = useLocation();
   const [url, setUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isColdStarting, setIsColdStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
   // Rate limit state
@@ -79,6 +80,11 @@ export function Landing() {
 
     setError(null);
     setIsSubmitting(true);
+    setIsColdStarting(false);
+    
+    const coldStartTimer = setTimeout(() => {
+      setIsColdStarting(true);
+    }, 4500);
 
     const body: any = { url: finalUrl };
     if (isBYOKOpen && byokData.isValid) {
@@ -101,6 +107,8 @@ export function Landing() {
         setIsRateLimited(true);
         setIsBYOKOpen(true);
         setIsSubmitting(false);
+        clearTimeout(coldStartTimer);
+        setIsColdStarting(false);
         return;
       }
 
@@ -115,6 +123,8 @@ export function Landing() {
       }
 
       const data = await res.json();
+      clearTimeout(coldStartTimer);
+      setIsColdStarting(false);
       navigate(`/audit/${data.id}`, { 
         state: { byokProvider: isBYOKOpen && byokData.isValid ? byokData.provider : undefined } 
       });
@@ -122,6 +132,8 @@ export function Landing() {
     } catch (err: any) {
       setError(err.message);
       setIsSubmitting(false);
+      clearTimeout(coldStartTimer);
+      setIsColdStarting(false);
     }
   };
 
@@ -183,7 +195,7 @@ export function Landing() {
                   {isSubmitting ? (
                     <>
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      Analyzing
+                      {isColdStarting ? 'Booting engine...' : 'Analyzing'}
                     </>
                   ) : (
                     <>
@@ -194,6 +206,14 @@ export function Landing() {
                 </button>
               </div>
             </form>
+
+            {/* Cold Start Indicator */}
+            {isColdStarting && (
+              <div className="max-w-lg mx-auto md:mx-0 mt-3 flex items-center justify-center md:justify-start gap-2 text-ink/60 animate-in fade-in duration-500">
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                <span className="text-sm font-medium">Booting the analysis engine — first request after idle can take a moment.</span>
+              </div>
+            )}
 
             {/* BYOK Toggle */}
             <div className="max-w-lg mx-auto md:mx-0 mt-4 text-left">

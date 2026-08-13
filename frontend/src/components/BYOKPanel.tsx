@@ -28,6 +28,7 @@ export function BYOKPanel({ onChange }: BYOKPanelProps) {
   const [modelsList, setModelsList] = useState<ModelInfo[]>([]);
   
   const [isLoading, setIsLoading] = useState(false);
+  const [isColdStarting, setIsColdStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Debounce API key
@@ -54,8 +55,11 @@ export function BYOKPanel({ onChange }: BYOKPanelProps) {
         return;
       }
 
+      let timer: ReturnType<typeof setTimeout>;
       if (active) {
         setIsLoading(true);
+        setIsColdStarting(false);
+        timer = setTimeout(() => setIsColdStarting(true), 4500);
         setError(null);
       }
 
@@ -120,7 +124,11 @@ export function BYOKPanel({ onChange }: BYOKPanelProps) {
           setError("Failed to connect to the server.");
         }
       } finally {
-        if (active) setIsLoading(false);
+        if (timer!) clearTimeout(timer);
+        if (active) {
+          setIsLoading(false);
+          setIsColdStarting(false);
+        }
       }
     }
 
@@ -210,6 +218,14 @@ export function BYOKPanel({ onChange }: BYOKPanelProps) {
         <div className="mt-4 flex items-start gap-2 text-flag-critical bg-flag-critical/10 px-4 py-3 rounded border border-flag-critical/20">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
           <span className="text-sm font-medium leading-relaxed">{error}</span>
+        </div>
+      )}
+
+      {/* Cold Start Indicator for BYOK */}
+      {isColdStarting && !error && (
+        <div className="mt-4 flex items-start gap-2 text-ink/60 bg-paper px-4 py-3 rounded border border-line animate-in fade-in duration-500">
+          <Loader2 className="w-4 h-4 mt-0.5 animate-spin shrink-0" />
+          <span className="text-sm font-medium leading-relaxed">Booting the analysis engine — first request after idle can take a moment.</span>
         </div>
       )}
     </div>
