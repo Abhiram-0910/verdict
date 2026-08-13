@@ -270,30 +270,30 @@ async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
     // ── Navigate ─────────────────────────────────────────────────────────────
 
     // Prevent SSRF by intercepting ALL requests and resolving hostnames
-    // await page.route('**/*', async (route, request) => {
-    //   try {
-    //     const urlObj = new URL(request.url());
-    //     
-    //     // Data URIs, about:blank, etc.
-    //     if (urlObj.protocol !== 'http:' && urlObj.protocol !== 'https:') {
-    //       return route.continue();
-    //     }
-    // 
-    //     const { address } = await lookup(urlObj.hostname);
-    //     if (isForbiddenIp(address)) {
-    //       if (address === '127.0.0.1' && urlObj.port === '9999' && process.env.NODE_ENV !== 'production') {
-    //         return route.continue();
-    //       }
-    //       console.warn(`[SSRF Blocked] Request to ${request.url()} resolved to forbidden IP ${address}`);
-    //       return route.abort('accessdenied');
-    //     }
-    //     
-    //     return route.continue();
-    //   } catch (err) {
-    //     // DNS lookup failed
-    //     return route.abort('name_not_resolved');
-    //   }
-    // });
+    await page.route('**/*', async (route, request) => {
+      try {
+        const urlObj = new URL(request.url());
+        
+        // Data URIs, about:blank, etc.
+        if (urlObj.protocol !== 'http:' && urlObj.protocol !== 'https:') {
+          return route.continue();
+        }
+
+        const { address } = await lookup(urlObj.hostname);
+        if (isForbiddenIp(address)) {
+          if (address === '127.0.0.1' && urlObj.port === '9999' && process.env.NODE_ENV !== 'production') {
+            return route.continue();
+          }
+          console.warn(`[SSRF Blocked] Request to ${request.url()} resolved to forbidden IP ${address}`);
+          return route.abort('accessdenied');
+        }
+        
+        return route.continue();
+      } catch (err) {
+        // DNS lookup failed
+        return route.abort('name_not_resolved');
+      }
+    });
 
     const navStart = Date.now();
     let response: Awaited<ReturnType<Page['goto']>> = null;
