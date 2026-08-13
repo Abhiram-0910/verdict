@@ -61,7 +61,7 @@ export const auditJob = pgTable('audit_job', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   startedAt: timestamp('started_at', { withTimezone: true }),
   completedAt: timestamp('completed_at', { withTimezone: true }),
-});
+}).enableRLS();
 
 /**
  * Raw output of the Playwright capture session for one audit.
@@ -87,7 +87,7 @@ export const captureResult = pgTable('capture_result', {
   partial: boolean('partial').notNull().default(false),
   partialReason: text('partial_reason'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}).enableRLS();
 
 /**
  * One row per axe-core violation found by the capture session.
@@ -107,7 +107,7 @@ export const accessibilityFinding = pgTable('accessibility_finding', {
   /** Count of DOM nodes affected by this violation. */
   nodeCount: integer('node_count').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}).enableRLS();
 
 /**
  * Visual hierarchy / layout finding from the Gemini Visual Critique Agent.
@@ -138,7 +138,7 @@ export const visualFinding = pgTable('visual_finding', {
   /** The model's stated reasoning — required per CLAUDE.md preferred patterns. */
   reasoning: text('reasoning').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}).enableRLS();
 
 /**
  * Messaging / CTA / trust-signal finding from the Gemini Copy Critique Agent.
@@ -157,7 +157,7 @@ export const copyFinding = pgTable('copy_finding', {
   confidence: numeric('confidence', { precision: 4, scale: 3 }).notNull(),
   reasoning: text('reasoning').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}).enableRLS();
 
 /**
  * Aggregated score for one audit. Exactly one row per AuditJob (enforced
@@ -186,7 +186,7 @@ export const auditScore = pgTable('audit_score', {
     }>()
     .notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}).enableRLS();
 
 /**
  * Ranked, concrete fix recommendations for one audit.
@@ -211,4 +211,4 @@ export const actionItem = pgTable('action_item', {
   /** UUID of the row in the finding table identified by findingType. */
   findingId: uuid('finding_id').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}).enableRLS();
