@@ -61,3 +61,4 @@
 - Antigravity CLI supports async subagents — consider dispatching frontend UI work to a background subagent while the capture/agents pipeline is built in the foreground, once there's enough surface area to parallelize.
 - Custom global skills (fast-search, code-audit, ui-ux) from the original setup plan aren't installed yet — only the built-in `antigravity-guide` skill is loaded. Worth setting up in a later session, not blocking now.
 - **Render build command must include `npx playwright install chromium`** — Chromium is not bundled in the npm package; it must be installed separately on each Render build. Add this to the build script when deploying.
+- **Render keepalive:** Deliberately no Render keepalive - cold starts accepted as a tradeoff, mitigated with a distinct loading message rather than eliminated, to avoid burning the shared 750-hour pool across other services on the account.

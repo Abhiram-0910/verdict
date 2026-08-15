@@ -26,3 +26,5 @@ services:
         sync: false
       - key: RATE_LIMIT_FREE_AUDITS_PER_DAY
         value: "5"
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: "/opt/render/project/src/backend/.cache/playwright"
