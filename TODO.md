@@ -57,8 +57,13 @@
 ## 🐛 Known Bugs
 - (none — all known bugs resolved as of Session 17)
 
+## ⚠️ Render Deployment Lessons Learned (Session 20)
+- **PUT /env-vars is destructive:** Render's `PUT /services/:id/env-vars` replaces the *entire* env var list with whatever you send. Always `GET /env-vars` first, merge the new key into the existing list, then `PUT` the merged result. Sending a partial list silently deletes all omitted keys — caused a production outage when `DATABASE_URL` and all Supabase/Gemini keys were wiped.
+- **buildCommand cannot be set via the API on manually-created services:** `PATCH /services/:id` with `serviceDetails.buildCommand` returns HTTP 200 but a subsequent GET shows the old value unchanged. The Render dashboard Settings → Build Command field is the only reliable path for this specific field on services originally created via the "New Web Service" UI (not via a Blueprint/render.yaml sync).
+- **render.yaml envVars/buildCommand is silently ignored for manually-created services:** Changes to `render.yaml` only apply to Blueprint-synced services. For manually-created services, all config changes must go through the dashboard UI or API directly.
+
 ## 💡 Ideas / Notes
 - Antigravity CLI supports async subagents — consider dispatching frontend UI work to a background subagent while the capture/agents pipeline is built in the foreground, once there's enough surface area to parallelize.
 - Custom global skills (fast-search, code-audit, ui-ux) from the original setup plan aren't installed yet — only the built-in `antigravity-guide` skill is loaded. Worth setting up in a later session, not blocking now.
-- **Render build command must include `npx playwright install chromium`** — Chromium is not bundled in the npm package; it must be installed separately on each Render build. Add this to the build script when deploying.
+- **Render build command must include `npx playwright install --with-deps chromium`** — Chromium is not bundled in the npm package, and `--with-deps` is required to install OS-level shared libraries (libnss, libatk, etc.) that Playwright needs to launch. Without `--with-deps`, Playwright installs the binary but not its OS dependencies, causing an immediate crash at `chromium.launch()`. This field must be set via the **Render dashboard Settings UI** (not via API or render.yaml) for this manually-created service.
 - **Render keepalive:** Deliberately no Render keepalive - cold starts accepted as a tradeoff, mitigated with a distinct loading message rather than eliminated, to avoid burning the shared 750-hour pool across other services on the account.
