@@ -3,7 +3,7 @@ services:
     name: verdict-backend
     env: node
     rootDir: backend
-    buildCommand: npm install && npm run build && npx playwright install --with-deps chromium
+    buildCommand: npm install && npm run build && npx playwright install chromium
     startCommand: npm start
     envVars:
       - key: NODE_ENV
