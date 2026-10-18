@@ -42,6 +42,7 @@ verdict/
 | File | Purpose |
 |------|---------|
 | `backend/src/capture/session.ts` | Single Playwright session: screenshot, Web Vitals via CDP, axe-core injection |
+| `backend/src/capture/egressProxy.ts` | In-process filtering egress forward proxy: DNS-pinning, BlockList enforcement on CONNECT/HTTP, port restriction |
 | `backend/src/agents/visualCritique.ts` | Gemini vision call: hierarchy, clutter, CTA visibility |
 | `backend/src/agents/copyCritique.ts` | Gemini call: five-second test, CTA copy, trust signals |
 | `backend/src/agents/scoring.ts` | Aggregation + impact-based ranking |
@@ -52,7 +53,7 @@ verdict/
 ---
 
 ## Data Flow
-User pastes URL → frontend `POST /api/audits` → backend creates `AuditJob` → Playwright captures desktop+mobile screenshots, Web Vitals, axe-core findings in one session → screenshots uploaded to Supabase Storage → Visual Critique Agent + Copy Critique Agent call Gemini API (gemini-2.5-flash) in parallel → Scoring Agent aggregates into `AuditScore` + ranked `ActionItem`s → saved to Postgres → frontend polls `/api/audits/:id/status` → renders report.
+User pastes URL → frontend `POST /api/audits` → backend creates `AuditJob` → Playwright captures desktop+mobile screenshots, Web Vitals, axe-core findings in one session (routed through local SSRF egress proxy) → screenshots uploaded to Supabase Storage → Visual Critique Agent + Copy Critique Agent call Gemini API (gemini-3.1-flash-lite) in parallel → Scoring Agent aggregates into `AuditScore` + ranked `ActionItem`s → saved to Postgres → frontend polls `/api/audits/:id/status` → renders report.
 
 ---
 
@@ -78,6 +79,7 @@ npm run db:studio
 ---
 
 - **Single Playwright session over Playwright + Lighthouse:** cuts compute per audit roughly in half — essential for free-tier memory & CPU limits.
+- **SSRF protection via filtering forward proxy:** in-process forward proxy pins upstream connections directly to validated IPs via `node:net` `BlockList`, closes DNS-rebinding windows, covers WebSockets, blocks loopback/private/cloud-metadata ranges, and restricts ports to 80/443. Chromium is configured with `bypass: '<-loopback>'` so all loopback traffic traverses the proxy. A second-layer `page.route` inspection operates in-browser.
 - **Single Node runtime over FastAPI split:** avoids a cross-language boundary with no functional benefit on a solo project.
 - **Async job + polling, not a blocking request:** Serverless cold starts and request timeouts make a single long blocking call unreliable.
 - **Cookie rate-limiting, no login:** keeps the "paste a URL, done" experience frictionless per the MVP spec.

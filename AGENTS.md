@@ -1,9 +1,9 @@
 # AGENTS.md — Session Handoff Log
 
 ## Project State
-**Last updated:** 2026-08-11
+**Last updated:** 2026-10-18
 **Current branch:** main
-**Overall status:** E2E Re-test complete. Ready for Deployment.
+**Overall status:** SSRF hardened via filtering forward proxy; all verifications pass. Ready for Deployment.
 
 ---
 
@@ -13,6 +13,32 @@
 ---
 
 ## Session Log
+
+### Session 21 — 2026-10-18 (SSRF Hardening via Filtering Forward Proxy)
+**Goal:** Implement defense-in-depth SSRF mitigation via an in-process filtering forward proxy (`egressProxy.ts`) that pins connections to validated IPs, covers WebSockets and redirects, resolves the TOCTOU DNS rebinding window, and closes the missing CGNAT/IPv4-mapped gap.
+
+**Forensic Findings:**
+- Forensic audit of git history revealed that while Session 19 documentation in `AGENTS.md` (committed in `b52acec`) claimed CGNAT (`100.64.0.0/10`) and IPv4-mapped IPv6 checks were added and verified, they were actually never committed to `session.ts` in any commit. Commit `b52acec` added only a 10-item regex list omitting both.
+- `COOKIE_SECRET` and fallback `'verdict-secret-placeholder'` were introduced in commit `62b5af0` in `server.ts:64` and were never included in `render.yaml`.
+
+**Completed:**
+- [x] **In-process Egress Proxy (`egressProxy.ts`):** Created forward proxy on `127.0.0.1` ephemeral port.
+  - Handles CONNECT (HTTPS & WebSocket tunnels), plain HTTP, and HTTP Upgrade requests.
+  - Enforces `node:net` `BlockList` covering: `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.0.0.0/24`, `192.168.0.0/16`, `198.18.0.0/15`, `224.0.0.0/4`, `240.0.0.0/4`, `::/128`, `::1/128`, `fc00::/7`, `fe80::/10`, `ff00::/8`, `64:ff9b::/96`, `2002::/16`, with explicit normalization and double-checking for IPv4-mapped IPv6 (`::ffff:a.b.c.d`, `::ffff:7f00:1`).
+  - Restricts destination ports to 80 and 443 only (rejects others with 403).
+  - Resolves via `dns.lookup({ all: true })` and connects directly to the validated IP address, eliminating DNS rebinding windows.
+  - Supports idle timeouts, connection timeouts, and tunnel concurrency caps. Logs blocked attempts with host and reason only (no headers or bodies).
+  - Production wiring passes no overrides; only unit tests use test-injected resolvers and predicates.
+- [x] **Chromium Integration (`session.ts`):** Launched Chromium with `proxy: { server: proxy.url, bypass: '<-loopback>' }` to ensure all loopback traffic traverses the proxy. Kept `page.route` as a second defense layer backed by the unified `BlockList`. Removed the dev-only `127.0.0.1:9999` allowlist.
+- [x] **Comprehensive Test Suite & Verification:**
+  - Added unit test suite in `backend/tests/capture/egressProxy.test.ts` (14/14 tests passing).
+  - Verified blocking of: `127.0.0.1`, `localhost`, `169.254.169.254`, `100.64.1.1`, `[::1]`, `[::ffff:127.0.0.1]`, `[::ffff:7f00:1]`, decimal (`2130706433`), hex (`0x7f000001`), octal (`0177.0.0.1`), redirects (302 to private IP), non-80/443 ports, in-page `fetch`, `WebSocket`, `<img>`, and `<form>`.
+  - Verified no regression on real captures (`https://example.com` and `https://verdict-ashen.vercel.app`) with full screenshots, Web Vitals, and axe-core analysis.
+- [x] **Documentation & Cleanup:** Updated `ARCHITECTURE.md` key files, data flow (corrected model name to `gemini-3.1-flash-lite`), and architectural decisions. Deleted all scratch scripts.
+
+**Next session should start with:**
+- Proceed to Deployment (Backend to Koyeb/Render, Frontend to Vercel).
+- Post-deployment verification of edge proxy headers and rate limiting.
 
 ### Session 20 — 2026-08-11 (Full E2E Re-Test)
 **Goal:** Run the full 7-step E2E verification suite before resuming deployment, diagnosing and resolving any integration drift caused by the styling pass and security fixes.

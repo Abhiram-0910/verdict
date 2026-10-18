@@ -29,24 +29,10 @@ import { enqueue } from './queue.js';
 import { db, captureResult, accessibilityFinding, auditJob } from '../db/index.js';
 import { eq, sql } from 'drizzle-orm';
 import { lookup } from 'dns/promises';
+import { getGlobalEgressProxy, createForbiddenBlockList } from './egressProxy.js';
 
-// ── SSRF Protection ──────────────────────────────────────────────────────────
-const FORBIDDEN_IP_BLOCKS = [
-  /^127\./,           // Loopback
-  /^10\./,            // RFC 1918
-  /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // RFC 1918
-  /^192\.168\./,      // RFC 1918
-  /^169\.254\./,      // Cloud Metadata
-  /^0\./,             // Zero network
-  /^::1$/,            // IPv6 Loopback
-  /^::$/,             // IPv6 Zero
-  /^fc00:/i,          // IPv6 Unique Local
-  /^fe80:/i,          // IPv6 Link Local
-];
-
-function isForbiddenIp(ip: string): boolean {
-  return FORBIDDEN_IP_BLOCKS.some((regex) => regex.test(ip));
-}
+// ── SSRF Protection (Second-layer check) ──────────────────────────────────────
+const { isForbidden: isForbiddenIp } = createForbiddenBlockList();
 
 // Read the axe-core bundle once at startup — injected into every page via
 // addScriptTag({ content }) so no CDN request is needed at audit time.
@@ -231,9 +217,14 @@ async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
   let browser: Browser | null = null;
 
   try {
+    const egressProxy = await getGlobalEgressProxy();
     browser = await chromium.launch({
       // Required for sandboxed container environments (Render, Docker)
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      proxy: {
+        server: egressProxy.url,
+        bypass: '<-loopback>',
+      },
     });
 
     const context = await browser.newContext({ viewport: DESKTOP_VIEWPORT });
@@ -269,7 +260,7 @@ async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
 
     // ── Navigate ─────────────────────────────────────────────────────────────
 
-    // Prevent SSRF by intercepting ALL requests and resolving hostnames
+    // Prevent SSRF by intercepting ALL requests and resolving hostnames (second defense layer)
     await page.route('**/*', async (route, request) => {
       try {
         const urlObj = new URL(request.url());
@@ -279,11 +270,8 @@ async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
           return route.continue();
         }
 
-        const { address } = await lookup(urlObj.hostname);
-        if (isForbiddenIp(address)) {
-          if (address === '127.0.0.1' && urlObj.port === '9999' && process.env.NODE_ENV !== 'production') {
-            return route.continue();
-          }
+        const { address, family } = await lookup(urlObj.hostname);
+        if (isForbiddenIp(address, family)) {
           console.warn(`[SSRF Blocked] Request to ${request.url()} resolved to forbidden IP ${address}`);
           return route.abort('accessdenied');
         }
@@ -306,11 +294,14 @@ async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const isTimeout = /timeout/i.test(msg);
+      const isBlocked = /ERR_TUNNEL_CONNECTION_FAILED|accessdenied|ERR_BLOCKED_BY_CLIENT|ERR_CONNECTION_REFUSED/i.test(msg);
       return {
         error: true,
-        reason: isTimeout ? 'TIMEOUT' : 'NAVIGATION_ERROR',
+        reason: isTimeout ? 'TIMEOUT' : isBlocked ? 'BLOCKED' : 'NAVIGATION_ERROR',
         detail: isTimeout
           ? `Page did not finish loading within ${NAVIGATION_TIMEOUT_MS}ms`
+          : isBlocked
+          ? `SSRF Blocked: ${msg}`
           : msg,
       };
     }
