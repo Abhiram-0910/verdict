@@ -21,10 +21,11 @@
  * caller's responsibility (Task 7 wiring).
  */
 
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
+import net from 'node:net';
 import { enqueue } from './queue.js';
 import { db, captureResult, accessibilityFinding, auditJob } from '../db/index.js';
 import { eq, sql } from 'drizzle-orm';
@@ -33,6 +34,34 @@ import { getGlobalEgressProxy, createForbiddenBlockList } from './egressProxy.js
 
 // ── SSRF Protection (Second-layer check) ──────────────────────────────────────
 const { isForbidden: isForbiddenIp } = createForbiddenBlockList();
+
+export function getChromiumProcessCount(): number {
+  let count = 0;
+  try {
+    const entries = readdirSync('/proc');
+    for (const entry of entries) {
+      if (/^\d+$/.test(entry)) {
+        try {
+          const comm = readFileSync(`/proc/${entry}/comm`, 'utf8').trim();
+          if (comm.includes('chrome') || comm.includes('chromium')) {
+            count++;
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+  return count;
+}
+
+export function logMemory(jobId: string, status: string): void {
+  const mem = process.memoryUsage();
+  const rssMb = (mem.rss / (1024 * 1024)).toFixed(1);
+  const heapUsedMb = (mem.heapUsed / (1024 * 1024)).toFixed(1);
+  const chromeCount = getChromiumProcessCount();
+  console.log(
+    `[Memory] Capture finished (jobId: ${jobId}, status: ${status}) | RSS: ${rssMb}MB, heapUsed: ${heapUsedMb}MB, ChromiumProcesses: ${chromeCount}`
+  );
+}
 
 // Read the axe-core bundle once at startup — injected into every page via
 // addScriptTag({ content }) so no CDN request is needed at audit time.
@@ -215,6 +244,8 @@ async function uploadScreenshot(
 
 async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
   let browser: Browser | null = null;
+  let context: BrowserContext | null = null;
+  let page: Page | null = null;
 
   try {
     const egressProxy = await getGlobalEgressProxy();
@@ -227,8 +258,8 @@ async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
       },
     });
 
-    const context = await browser.newContext({ viewport: DESKTOP_VIEWPORT });
-    const page = await context.newPage();
+    context = await browser.newContext({ viewport: DESKTOP_VIEWPORT });
+    page = await context.newPage();
 
     // Inject LCP + CLS PerformanceObservers before navigation fires, so
     // entries emitted early in the page load are captured via `buffered: true`.
@@ -267,19 +298,35 @@ async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
         
         // Data URIs, about:blank, etc.
         if (urlObj.protocol !== 'http:' && urlObj.protocol !== 'https:') {
-          return route.continue();
+          try { await route.continue(); } catch {}
+          return;
         }
 
-        const { address, family } = await lookup(urlObj.hostname);
-        if (isForbiddenIp(address, family)) {
-          console.warn(`[SSRF Blocked] Request to ${request.url()} resolved to forbidden IP ${address}`);
-          return route.abort('accessdenied');
+        const cleanHost = urlObj.hostname.replace(/^\[|\]$/g, '');
+        if (net.isIP(cleanHost)) {
+          if (isForbiddenIp(cleanHost)) {
+            console.warn(`[SSRF Blocked] Request to ${request.url()} is forbidden IP ${cleanHost}`);
+            try { await route.abort('accessdenied'); } catch {}
+            return;
+          }
+        } else {
+          try {
+            const { address, family } = await lookup(cleanHost);
+            if (isForbiddenIp(address, family)) {
+              console.warn(`[SSRF Blocked] Request to ${request.url()} resolved to forbidden IP ${address}`);
+              try { await route.abort('accessdenied'); } catch {}
+              return;
+            }
+          } catch {
+            // DNS lookup failed
+            try { await route.abort('name_not_resolved'); } catch {}
+            return;
+          }
         }
         
-        return route.continue();
+        try { await route.continue(); } catch {}
       } catch (err) {
-        // DNS lookup failed
-        return route.abort('name_not_resolved');
+        try { await route.abort('name_not_resolved'); } catch {}
       }
     });
 
@@ -294,7 +341,7 @@ async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const isTimeout = /timeout/i.test(msg);
-      const isBlocked = /ERR_TUNNEL_CONNECTION_FAILED|accessdenied|ERR_BLOCKED_BY_CLIENT|ERR_CONNECTION_REFUSED/i.test(msg);
+      const isBlocked = /ERR_TUNNEL_CONNECTION_FAILED|ERR_ACCESS_DENIED|access[_\s-]?denied|ERR_BLOCKED_BY_CLIENT|ERR_CONNECTION_REFUSED/i.test(msg);
       return {
         error: true,
         reason: isTimeout ? 'TIMEOUT' : isBlocked ? 'BLOCKED' : 'NAVIGATION_ERROR',
@@ -446,8 +493,28 @@ async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
       detail,
     };
   } finally {
-    // Always close the browser — even on early return paths
-    if (browser) await browser.close();
+    // Always close page, context, and browser on EVERY path (including timeouts, blocks, errors)
+    if (page) {
+      try {
+        await page.close();
+      } catch (err) {
+        console.warn(`[Capture Cleanup] Failed to close page for job ${jobId}:`, err);
+      }
+    }
+    if (context) {
+      try {
+        await context.close();
+      } catch (err) {
+        console.warn(`[Capture Cleanup] Failed to close context for job ${jobId}:`, err);
+      }
+    }
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (err) {
+        console.warn(`[Capture Cleanup] Failed to close browser for job ${jobId}:`, err);
+      }
+    }
   }
 }
 
@@ -460,7 +527,19 @@ async function runCapture(url: string, jobId: string): Promise<CaptureResult> {
  * single-concurrency queue by the caller to stay within Render's 512 MB RAM ceiling.
  */
 export async function captureUrl(url: string, jobId: string): Promise<CaptureResult> {
-  const result = await runCapture(url, jobId);
+  let result: CaptureResult | undefined;
+  try {
+    result = await runCapture(url, jobId);
+  } catch (err) {
+    result = {
+      error: true,
+      reason: 'NAVIGATION_ERROR',
+      detail: err instanceof Error ? err.message : String(err),
+    };
+  } finally {
+    // Log memory after every capture finishes (success or failure)
+    logMemory(jobId, result?.error ? `failed:${result.reason}` : (result ? 'success' : 'failed:unknown'));
+  }
 
   if (result.error) {
     return result;

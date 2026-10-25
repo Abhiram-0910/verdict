@@ -63,3 +63,18 @@ export function enqueue<T>(job: Job<T>): Promise<T> {
 export function queueDepth(): number {
   return pending.length + (isRunning ? 1 : 0);
 }
+
+/**
+ * Current count of pending jobs waiting in queue.
+ */
+export function getPendingCount(): number {
+  return pending.length;
+}
+
+/**
+ * Reset queue state (for testing purposes).
+ */
+export function resetQueueForTest(): void {
+  pending.length = 0;
+  isRunning = false;
+}

@@ -23,6 +23,7 @@
 import { GoogleGenAI, type Part } from '@google/genai';
 import type { AIProvider, CritiqueRequest, CritiqueResult, ModelInfo } from './types.js';
 import { ProviderFetchError } from './openaiCompatible.js';
+import { tripGeminiCircuitBreaker } from '../lib/abuseControl.js';
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
@@ -183,6 +184,7 @@ export class GeminiProvider implements AIProvider {
       } catch (error: unknown) {
         const err = error as { status?: number; message?: string };
         if (err?.status === 429 || err?.message?.includes('429')) {
+          tripGeminiCircuitBreaker(error);
           if (attempt >= maxRetries) {
             return { success: false, reason: 'AI_RATE_LIMIT', detail: `Gemini rate limit after ${maxRetries} retries` };
           }

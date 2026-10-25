@@ -1,9 +1,9 @@
 # AGENTS.md — Session Handoff Log
 
 ## Project State
-**Last updated:** 2026-10-18
+**Last updated:** 2026-10-25
 **Current branch:** main
-**Overall status:** SSRF hardened via filtering forward proxy; all verifications pass. Ready for Deployment.
+**Overall status:** Crash and memory defenses implemented, abuse/cost controls enforced, Fastify patched; 43/43 tests passing.
 
 ---
 
@@ -13,6 +13,34 @@
 ---
 
 ## Session Log
+
+### Session 22 — 2026-10-25 (Crash, Memory Defenses & Cost/Abuse Controls)
+**Goal:** Address container crash on Render during SSRF probes, fix BLOCKED classification regex for `net::ERR_ACCESS_DENIED`, implement memory logging, unhandled crash loggers, IP literal rejection at POST, cheap BYOK key validation with SHA-256 caching, BYOK rate limiting, queue capacity caps, global budget + Gemini LA-midnight circuit breaker, and 5-min orphan reconciliation.
+
+**Completed:**
+- [x] **Task A: Crash & Memory Defenses:**
+  - `session.ts`: `browser`, `context`, and `page` closed in `finally` on every path (including timeouts, blocks, and errors). Wrapped route handlers in `try/catch` and awaited abortions.
+  - `egressProxy.ts`: Added `server.on('clientError')`, attached error and close handlers on both client and upstream sockets, cleared timers, decremented tunnel counter on every exit branch (including `server.on('upgrade')`), and ensured sockets are mutually destroyed on disconnect. Added startup log line reporting proxy port (`[EgressProxy] Running on 127.0.0.1:<port>`).
+  - `server.ts`: Added `process.on('uncaughtException')` and `process.on('unhandledRejection')` that log a single structured fatal JSON line (message, stack, timestamp, secret scrub) and exit with code 1 after flushing to stderr.
+  - `session.ts`: Added post-capture memory logging (`process.memoryUsage().rss`, `heapUsed`, and `/proc` Chromium process count) after every capture.
+  - Fixed `BLOCKED` classification: Updated regex to `/ERR_TUNNEL_CONNECTION_FAILED|ERR_ACCESS_DENIED|access[_\s-]?denied|ERR_BLOCKED_BY_CLIENT|ERR_CONNECTION_REFUSED/i`. Proved that Chromium's `net::ERR_ACCESS_DENIED` and proxy 403s classify as `BLOCKED`.
+- [x] **Task B: Abuse & Cost Control:**
+  - Built `backend/src/lib/abuseControl.ts`:
+    - Reject IP literals at `POST /api/audits` with HTTP 400 and plain message before consuming quota or touching queue. Hostnames continue to capture.
+    - Cheap authenticated BYOK key validation (OpenAI, xAI, Anthropic, Gemini, OpenRouter) with 8s timeout (`AbortSignal.timeout(8000)`). Successes cached in-memory for 10 minutes keyed by SHA-256 (keys never stored or logged). Invalid key returns 401 `INVALID_API_KEY`.
+    - BYOK daily capture cap (default 20, env-configurable) on cookie + IP bucket.
+    - Queue capacity: capped pending jobs (default 10) with 503 `{ code: 'BUSY', retryAfterSeconds: 30 }`; at most 1 pending-or-running job per IP (429).
+    - Global daily budget for default Gemini path (default 150/day UTC). Quota circuit breaker: trips on Gemini 429 when `quotaId` contains `PerDay` (per-minute `quotaId` does NOT trip it), blocking default-path audits until next midnight `America/Los_Angeles` (computed dynamically via `Intl.DateTimeFormat`, verified around DST boundaries).
+    - Orphan reconciliation: on startup and every 5 minutes, marks pending jobs >10m and running jobs >5m as failed with short code `SERVER_RESTART`. Added plain-language translation in `frontend/src/lib/errorTranslations.ts`.
+  - Upgraded Fastify to 5.12.7 and `@fastify/cookie` to 11.1.3 within `^5`. Ran `npm audit --omit=dev`.
+- [x] **Verification & Benchmark:**
+  - 43/43 vitest tests passing across 5 test suites.
+  - 10-capture benchmark on built output under `NODE_ENV=production` (`example.com` x4, `verdict-ashen.vercel.app` x2, 3 SSRF probes, 1 junk-BYOK): RSS remained steady (168–173 MB, zero memory leak), and Chromium process count remained 0 after every run.
+  - Both `npm run typecheck` and `npm test` passing cleanly.
+
+**Next session should start with:**
+- Proceed to live deployment on Render / Koyeb with hardened configuration.
+- Post-deployment verification of edge proxy headers and rate limiting.
 
 ### Session 21 — 2026-10-18 (SSRF Hardening via Filtering Forward Proxy)
 **Goal:** Implement defense-in-depth SSRF mitigation via an in-process filtering forward proxy (`egressProxy.ts`) that pins connections to validated IPs, covers WebSockets and redirects, resolves the TOCTOU DNS rebinding window, and closes the missing CGNAT/IPv4-mapped gap.

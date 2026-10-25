@@ -19,6 +19,7 @@ export const ERROR_TRANSLATIONS: Record<string, string> = {
   FONTS_NOT_READY: "Some fonts were still loading when the screenshot was taken. Visual results may not reflect the fully-rendered state.",
 
   // ── General ───────────────────────────────────────────────────────────────
+  SERVER_RESTART: "The audit was interrupted by a server restart or timeout. Please submit the URL again.",
   DB_WRITE_FAILED: "We successfully analyzed the page, but encountered a database error while saving the results.",
   UNKNOWN: "An unexpected error occurred during the audit."
 };

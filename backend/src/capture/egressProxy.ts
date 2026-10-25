@@ -128,17 +128,30 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
       });
     });
 
+    server.on('clientError', (err, socket) => {
+      try {
+        if (!socket.destroyed) {
+          socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+          socket.destroy();
+        }
+      } catch {}
+    });
+
     // Handle CONNECT (HTTPS and WebSocket tunnels)
     server.on('connect', async (req, clientSocket, head) => {
       if (activeTunnels >= maxConcurrentTunnels) {
         console.warn(`[SSRF Blocked] Concurrent tunnel limit reached (${maxConcurrentTunnels})`);
-        clientSocket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n');
+        try {
+          clientSocket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n');
+        } catch {}
         clientSocket.destroy();
         return;
       }
 
       activeTunnels++;
       let cleanedUp = false;
+      let upstreamSocket: net.Socket | null = null;
+
       const cleanupTunnel = () => {
         if (!cleanedUp) {
           cleanedUp = true;
@@ -146,13 +159,21 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
         }
       };
 
-      clientSocket.on('close', cleanupTunnel);
-      clientSocket.on('error', cleanupTunnel);
+      clientSocket.on('close', () => {
+        cleanupTunnel();
+        if (upstreamSocket && !upstreamSocket.destroyed) upstreamSocket.destroy();
+      });
+      clientSocket.on('error', () => {
+        cleanupTunnel();
+        if (upstreamSocket && !upstreamSocket.destroyed) upstreamSocket.destroy();
+      });
 
       const parsed = req.url ? parseHostAndPort(req.url, 443) : null;
       if (!parsed) {
         console.warn(`[SSRF Blocked] Malformed CONNECT URL`);
-        clientSocket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+        cleanupTunnel();
+        try { clientSocket.end('HTTP/1.1 400 Bad Request\r\n\r\n'); } catch {}
+        clientSocket.destroy();
         return;
       }
 
@@ -162,7 +183,9 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
       if (!isExtraAllowed) {
         if (parsed.port !== 80 && parsed.port !== 443) {
           console.warn(`[SSRF Blocked] Destination ${parsed.hostname}:${parsed.port} rejected: Port not allowed (only 80, 443)`);
-          clientSocket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
+          cleanupTunnel();
+          try { clientSocket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); } catch {}
+          clientSocket.destroy();
           return;
         }
 
@@ -171,22 +194,33 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
           addresses = await resolver(parsed.hostname);
         } catch {
           console.warn(`[SSRF Blocked] Destination ${parsed.hostname}:${parsed.port} rejected: DNS resolution failed`);
-          clientSocket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+          cleanupTunnel();
+          try { clientSocket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); } catch {}
+          clientSocket.destroy();
           return;
         }
 
         if (!addresses || addresses.length === 0) {
           console.warn(`[SSRF Blocked] Destination ${parsed.hostname}:${parsed.port} rejected: No DNS addresses found`);
-          clientSocket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+          cleanupTunnel();
+          try { clientSocket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); } catch {}
+          clientSocket.destroy();
           return;
         }
 
         for (const { address, family } of addresses) {
           if (isForbidden(address, family)) {
             console.warn(`[SSRF Blocked] Destination ${parsed.hostname}:${parsed.port} rejected: Resolved to forbidden IP ${address}`);
-            clientSocket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
+            cleanupTunnel();
+            try { clientSocket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); } catch {}
+            clientSocket.destroy();
             return;
           }
+        }
+
+        if (clientSocket.destroyed) {
+          cleanupTunnel();
+          return;
         }
 
         // Pause client timeout while connecting upstream
@@ -196,73 +230,107 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
 
         // Connect upstream socket to the validated IP itself (prevents DNS rebinding)
         const targetIp = addresses[0].address;
-        const upstreamSocket = net.connect({
+        upstreamSocket = net.connect({
           host: targetIp,
           port: parsed.port,
         });
 
         upstreamSocket.setTimeout(idleTimeoutMs, () => {
-          upstreamSocket.destroy(new Error('Upstream connection timeout'));
+          upstreamSocket?.destroy(new Error('Upstream connection timeout'));
         });
 
         upstreamSocket.on('connect', () => {
+          if (cleanedUp || clientSocket.destroyed) {
+            upstreamSocket?.destroy();
+            return;
+          }
           if ('setTimeout' in clientSocket && typeof (clientSocket as net.Socket).setTimeout === 'function') {
             (clientSocket as net.Socket).setTimeout(idleTimeoutMs, () => clientSocket.destroy());
           }
-          upstreamSocket.setTimeout(idleTimeoutMs, () => upstreamSocket.destroy());
-          clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-          if (head && head.length > 0) {
-            upstreamSocket.write(head);
+          upstreamSocket?.setTimeout(idleTimeoutMs, () => upstreamSocket?.destroy());
+          try {
+            clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+            if (head && head.length > 0) {
+              upstreamSocket?.write(head);
+            }
+            upstreamSocket?.pipe(clientSocket);
+            clientSocket.pipe(upstreamSocket!);
+          } catch {
+            cleanupTunnel();
+            upstreamSocket?.destroy();
+            clientSocket.destroy();
           }
-          upstreamSocket.pipe(clientSocket);
-          clientSocket.pipe(upstreamSocket);
         });
 
         upstreamSocket.on('error', (err) => {
+          cleanupTunnel();
           const isTimeout = err?.message?.includes('timeout');
           const statusLine = isTimeout ? 'HTTP/1.1 504 Gateway Timeout' : 'HTTP/1.1 502 Bad Gateway';
-          if (!clientSocket.destroyed) {
-            clientSocket.end(`${statusLine}\r\n\r\n`);
-          }
+          try {
+            if (!clientSocket.destroyed) {
+              clientSocket.end(`${statusLine}\r\n\r\n`);
+              clientSocket.destroy();
+            }
+          } catch {}
         });
 
-        upstreamSocket.on('close', cleanupTunnel);
+        upstreamSocket.on('close', () => {
+          cleanupTunnel();
+          if (!clientSocket.destroyed) clientSocket.destroy();
+        });
       } else {
         // Test-only extraAllow path
         if ('setTimeout' in clientSocket && typeof (clientSocket as net.Socket).setTimeout === 'function') {
           (clientSocket as net.Socket).setTimeout(0);
         }
-        const upstreamSocket = net.connect({
+        upstreamSocket = net.connect({
           host: parsed.hostname,
           port: parsed.port,
         });
 
         upstreamSocket.setTimeout(idleTimeoutMs, () => {
-          upstreamSocket.destroy(new Error('Upstream connection timeout'));
+          upstreamSocket?.destroy(new Error('Upstream connection timeout'));
         });
 
         upstreamSocket.on('connect', () => {
+          if (cleanedUp || clientSocket.destroyed) {
+            upstreamSocket?.destroy();
+            return;
+          }
           if ('setTimeout' in clientSocket && typeof (clientSocket as net.Socket).setTimeout === 'function') {
             (clientSocket as net.Socket).setTimeout(idleTimeoutMs, () => clientSocket.destroy());
           }
-          upstreamSocket.setTimeout(idleTimeoutMs, () => upstreamSocket.destroy());
-          clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-          if (head && head.length > 0) {
-            upstreamSocket.write(head);
+          upstreamSocket?.setTimeout(idleTimeoutMs, () => upstreamSocket?.destroy());
+          try {
+            clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+            if (head && head.length > 0) {
+              upstreamSocket?.write(head);
+            }
+            upstreamSocket?.pipe(clientSocket);
+            clientSocket.pipe(upstreamSocket!);
+          } catch {
+            cleanupTunnel();
+            upstreamSocket?.destroy();
+            clientSocket.destroy();
           }
-          upstreamSocket.pipe(clientSocket);
-          clientSocket.pipe(upstreamSocket);
         });
 
         upstreamSocket.on('error', (err) => {
+          cleanupTunnel();
           const isTimeout = err?.message?.includes('timeout');
           const statusLine = isTimeout ? 'HTTP/1.1 504 Gateway Timeout' : 'HTTP/1.1 502 Bad Gateway';
-          if (!clientSocket.destroyed) {
-            clientSocket.end(`${statusLine}\r\n\r\n`);
-          }
+          try {
+            if (!clientSocket.destroyed) {
+              clientSocket.end(`${statusLine}\r\n\r\n`);
+              clientSocket.destroy();
+            }
+          } catch {}
         });
 
-        upstreamSocket.on('close', cleanupTunnel);
+        upstreamSocket.on('close', () => {
+          cleanupTunnel();
+          if (!clientSocket.destroyed) clientSocket.destroy();
+        });
       }
     });
 
@@ -290,6 +358,7 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
       const parsed = req.url ? parseHostAndPort(req.url, 80) : null;
       if (!parsed) {
         console.warn(`[SSRF Blocked] Malformed HTTP URL`);
+        cleanupTunnel();
         res.writeHead(400, { 'Content-Type': 'text/plain' });
         res.end('Bad Request');
         return;
@@ -303,6 +372,7 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
       if (!isExtraAllowed) {
         if (parsed.port !== 80 && parsed.port !== 443) {
           console.warn(`[SSRF Blocked] Destination ${parsed.hostname}:${parsed.port} rejected: Port not allowed (only 80, 443)`);
+          cleanupTunnel();
           res.writeHead(403, { 'Content-Type': 'text/plain' });
           res.end('Forbidden: Port not allowed');
           return;
@@ -313,6 +383,7 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
           addresses = await resolver(parsed.hostname);
         } catch {
           console.warn(`[SSRF Blocked] Destination ${parsed.hostname}:${parsed.port} rejected: DNS resolution failed`);
+          cleanupTunnel();
           res.writeHead(502, { 'Content-Type': 'text/plain' });
           res.end('Bad Gateway: DNS lookup failed');
           return;
@@ -320,6 +391,7 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
 
         if (!addresses || addresses.length === 0) {
           console.warn(`[SSRF Blocked] Destination ${parsed.hostname}:${parsed.port} rejected: No DNS addresses found`);
+          cleanupTunnel();
           res.writeHead(502, { 'Content-Type': 'text/plain' });
           res.end('Bad Gateway: No DNS addresses');
           return;
@@ -328,6 +400,7 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
         for (const { address, family } of addresses) {
           if (isForbidden(address, family)) {
             console.warn(`[SSRF Blocked] Destination ${parsed.hostname}:${parsed.port} rejected: Resolved to forbidden IP ${address}`);
+            cleanupTunnel();
             res.writeHead(403, { 'Content-Type': 'text/plain' });
             res.end('Forbidden: SSRF Blocked');
             return;
@@ -370,9 +443,26 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
       });
 
       upstreamReq.on('error', () => {
+        cleanupTunnel();
         if (!res.headersSent) {
           res.writeHead(502, { 'Content-Type': 'text/plain' });
           res.end('Bad Gateway');
+        }
+      });
+
+      req.on('error', () => {
+        cleanupTunnel();
+        upstreamReq.destroy();
+      });
+
+      res.on('error', () => {
+        cleanupTunnel();
+        upstreamReq.destroy();
+      });
+
+      req.on('close', () => {
+        if (!res.writableEnded) {
+          upstreamReq.destroy();
         }
       });
 
@@ -381,9 +471,40 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
 
     // Also handle upgrade requests for plain HTTP WebSockets (ws://)
     server.on('upgrade', async (req, clientSocket, head) => {
+      if (activeTunnels >= maxConcurrentTunnels) {
+        console.warn(`[SSRF Blocked] Concurrent tunnel limit reached (${maxConcurrentTunnels})`);
+        try {
+          clientSocket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n');
+        } catch {}
+        clientSocket.destroy();
+        return;
+      }
+
+      activeTunnels++;
+      let cleanedUp = false;
+      let upstreamSocket: net.Socket | null = null;
+      const cleanupTunnel = () => {
+        if (!cleanedUp) {
+          cleanedUp = true;
+          activeTunnels = Math.max(0, activeTunnels - 1);
+        }
+      };
+
+      clientSocket.on('close', () => {
+        cleanupTunnel();
+        if (upstreamSocket && !upstreamSocket.destroyed) upstreamSocket.destroy();
+      });
+      clientSocket.on('error', () => {
+        cleanupTunnel();
+        if (upstreamSocket && !upstreamSocket.destroyed) upstreamSocket.destroy();
+      });
+
       const parsed = req.url ? parseHostAndPort(req.url, 80) : null;
       if (!parsed) {
-        clientSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+        cleanupTunnel();
+        try {
+          clientSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+        } catch {}
         clientSocket.destroy();
         return;
       }
@@ -392,7 +513,10 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
       if (!isExtraAllowed) {
         if (parsed.port !== 80 && parsed.port !== 443) {
           console.warn(`[SSRF Blocked] WebSocket destination ${parsed.hostname}:${parsed.port} rejected: Port not allowed`);
-          clientSocket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+          cleanupTunnel();
+          try {
+            clientSocket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+          } catch {}
           clientSocket.destroy();
           return;
         }
@@ -401,7 +525,19 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
         try {
           addresses = await resolver(parsed.hostname);
         } catch {
-          clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+          cleanupTunnel();
+          try {
+            clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+          } catch {}
+          clientSocket.destroy();
+          return;
+        }
+
+        if (!addresses || addresses.length === 0) {
+          cleanupTunnel();
+          try {
+            clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+          } catch {}
           clientSocket.destroy();
           return;
         }
@@ -409,34 +545,103 @@ export function startEgressProxy(options: EgressProxyOptions = {}): Promise<Egre
         for (const { address, family } of addresses) {
           if (isForbidden(address, family)) {
             console.warn(`[SSRF Blocked] WebSocket destination ${parsed.hostname}:${parsed.port} rejected: Resolved to forbidden IP ${address}`);
-            clientSocket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+            cleanupTunnel();
+            try {
+              clientSocket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+            } catch {}
             clientSocket.destroy();
             return;
           }
         }
 
         const targetIp = addresses[0].address;
-        const upstreamSocket = net.connect({
+        upstreamSocket = net.connect({
           host: targetIp,
           port: parsed.port,
         });
 
+        upstreamSocket.setTimeout(idleTimeoutMs, () => {
+          upstreamSocket?.destroy(new Error('Upstream timeout'));
+        });
+
         upstreamSocket.on('connect', () => {
-          // Forward the raw upgrade request
-          let rawReq = `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`;
-          for (let i = 0; i < req.rawHeaders.length; i += 2) {
-            rawReq += `${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}\r\n`;
+          if (cleanedUp || clientSocket.destroyed) {
+            upstreamSocket?.destroy();
+            return;
           }
-          rawReq += '\r\n';
-          upstreamSocket.write(rawReq);
-          if (head && head.length > 0) upstreamSocket.write(head);
-          upstreamSocket.pipe(clientSocket);
-          clientSocket.pipe(upstreamSocket);
+          try {
+            let rawReq = `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`;
+            for (let i = 0; i < req.rawHeaders.length; i += 2) {
+              rawReq += `${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}\r\n`;
+            }
+            rawReq += '\r\n';
+            upstreamSocket?.write(rawReq);
+            if (head && head.length > 0) upstreamSocket?.write(head);
+            upstreamSocket?.pipe(clientSocket);
+            clientSocket.pipe(upstreamSocket!);
+          } catch {
+            cleanupTunnel();
+            upstreamSocket?.destroy();
+            clientSocket.destroy();
+          }
         });
 
         upstreamSocket.on('error', () => {
-          clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+          cleanupTunnel();
+          try {
+            clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+          } catch {}
           clientSocket.destroy();
+        });
+
+        upstreamSocket.on('close', () => {
+          cleanupTunnel();
+          if (!clientSocket.destroyed) clientSocket.destroy();
+        });
+      } else {
+        // Test-only extraAllow path
+        upstreamSocket = net.connect({
+          host: parsed.hostname,
+          port: parsed.port,
+        });
+
+        upstreamSocket.setTimeout(idleTimeoutMs, () => {
+          upstreamSocket?.destroy(new Error('Upstream timeout'));
+        });
+
+        upstreamSocket.on('connect', () => {
+          if (cleanedUp || clientSocket.destroyed) {
+            upstreamSocket?.destroy();
+            return;
+          }
+          try {
+            let rawReq = `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`;
+            for (let i = 0; i < req.rawHeaders.length; i += 2) {
+              rawReq += `${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}\r\n`;
+            }
+            rawReq += '\r\n';
+            upstreamSocket?.write(rawReq);
+            if (head && head.length > 0) upstreamSocket?.write(head);
+            upstreamSocket?.pipe(clientSocket);
+            clientSocket.pipe(upstreamSocket!);
+          } catch {
+            cleanupTunnel();
+            upstreamSocket?.destroy();
+            clientSocket.destroy();
+          }
+        });
+
+        upstreamSocket.on('error', () => {
+          cleanupTunnel();
+          try {
+            clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+          } catch {}
+          clientSocket.destroy();
+        });
+
+        upstreamSocket.on('close', () => {
+          cleanupTunnel();
+          if (!clientSocket.destroyed) clientSocket.destroy();
         });
       }
     });
@@ -486,6 +691,7 @@ export async function getGlobalEgressProxy(): Promise<EgressProxy> {
     .then((proxy) => {
       globalProxy = proxy;
       startingPromise = null;
+      console.log(`[EgressProxy] Running on 127.0.0.1:${proxy.port}`);
       return proxy;
     })
     .catch((err) => {

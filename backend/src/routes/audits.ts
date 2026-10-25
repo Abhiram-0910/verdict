@@ -9,6 +9,16 @@ import { runScoring } from '../agents/scoring.js';
 import { checkAndConsumeRateLimit } from '../lib/rateLimit.js';
 import { getProvider } from '../providers/index.js';
 import type { ProviderName } from '../providers/types.js';
+import {
+  checkIpLiteral,
+  validateByokApiKey,
+  checkAndConsumeByokRateLimit,
+  checkQueueCapacity,
+  trackInFlightStart,
+  trackInFlightEnd,
+  checkDefaultPathBudget,
+  recordDefaultPathAudit,
+} from '../lib/abuseControl.js';
 
 const submitSchema = z.object({
   url: z.string().url(),
@@ -31,6 +41,15 @@ export default async function auditsRoutes(fastify: FastifyInstance) {
     }
     const { url, byokProvider, byokApiKey, byokModel } = parsed.data;
 
+    // 2. Reject private/loopback/link-local/CGNAT IP literals before consuming quota or queueing
+    const ipCheck = checkIpLiteral(url);
+    if (ipCheck.isIp && ipCheck.isBlocked) {
+      return reply.status(400).send({
+        error: 'Bad Request',
+        detail: 'Audits cannot be performed on private, loopback, or internal IP addresses.',
+      });
+    }
+
     let byok: ByokContext | undefined;
     if (byokProvider) {
       if (!byokModel) {
@@ -48,28 +67,82 @@ export default async function auditsRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ error: 'Bad Request', detail: 'byokApiKey is required for BYOK audits.' });
       }
 
+      // Validate key before starting capture
+      const isKeyValid = await validateByokApiKey(byokProvider as ProviderName, byokApiKey);
+      if (!isKeyValid) {
+        return reply.status(401).send({
+          error: 'INVALID_API_KEY',
+          detail: 'Invalid API key provided.',
+        });
+      }
+
+      // BYOK rate limit (default 20, cookie + IP)
+      if (!checkAndConsumeByokRateLimit(request, reply)) {
+        return reply.status(429).send({
+          error: 'Rate limit exceeded',
+          detail: 'You have reached the maximum number of BYOK audits for today.',
+        });
+      }
+
       byok = {
         provider: byokProvider as ProviderName,
         apiKey: byokApiKey || '',
         modelId: byokModel
       };
+    } else {
+      // Default Gemini path: check Circuit Breaker and Global Daily Budget
+      const budgetCheck = checkDefaultPathBudget();
+      if (!budgetCheck.allowed) {
+        return reply.status(503).send({
+          error: 'Service Unavailable',
+          code: budgetCheck.code,
+          resetAt: budgetCheck.resetAt,
+          detail: budgetCheck.detail,
+        });
+      }
+
+      // Free Tier Rate Limit Check (Cookie + IP)
+      if (!checkAndConsumeRateLimit(request, reply)) {
+        return reply.status(429).send({
+          error: 'Rate limit exceeded',
+          detail: 'You have reached the maximum number of free audits for today.',
+        });
+      }
     }
 
-    // 2. Rate Limit Check (Bypass if using BYOK)
-    if (!byok && !checkAndConsumeRateLimit(request, reply)) {
-      return reply.status(429).send({
-        error: 'Rate limit exceeded',
-        detail: 'You have reached the maximum number of free audits for today.',
+    // 3. Queue Capacity & Concurrency (Max 1 in-flight per IP, Max pending jobs cap)
+    const clientIp = request.ip || 'unknown';
+    const queueCheck = checkQueueCapacity(clientIp);
+    if (!queueCheck.allowed) {
+      if (queueCheck.status === 503) {
+        return reply.status(503).send({
+          error: 'Service Unavailable',
+          code: queueCheck.code,
+          retryAfterSeconds: queueCheck.retryAfterSeconds,
+          detail: queueCheck.detail,
+        });
+      }
+      return reply.status(queueCheck.status || 429).send({
+        error: 'Too Many Requests',
+        detail: queueCheck.detail,
       });
     }
 
-    // 3. Create AuditJob
+    // Consume global default-path budget if applicable
+    if (!byok) {
+      recordDefaultPathAudit();
+    }
+
+    // Track active job for client IP
+    trackInFlightStart(clientIp);
+
+    // 4. Create AuditJob
     const [job] = await db.insert(auditJob).values({
       url,
       status: 'pending',
     }).returning({ id: auditJob.id });
 
-    // 4. Enqueue background task
+    // 5. Enqueue background task
     // (Detached promise — we don't await this here, we return 202 immediately)
     runQueuedCapture(url, job.id).then(async (result) => {
       if (result.error) {
@@ -132,9 +205,11 @@ export default async function auditsRoutes(fastify: FastifyInstance) {
         failureReason: 'UNKNOWN',
         completedAt: sql`now()`,
       }).where(eq(auditJob.id, job.id));
+    }).finally(() => {
+      trackInFlightEnd(clientIp);
     });
 
-    // 5. Respond immediately
+    // 6. Respond immediately
     return reply.status(202).send({ id: job.id });
   });
 

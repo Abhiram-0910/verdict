@@ -1,33 +1,92 @@
 import './env.js';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-
-const PORT = parseInt(process.env.PORT || '3001', 10);
-const HOST = process.env.HOST || '0.0.0.0';
-
 import fastifyCookie from '@fastify/cookie';
 import auditsRoutes from './routes/audits.js';
 import providersRoutes from './routes/providers.js';
 import { db } from './db/client.js';
 import { auditJob } from './db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, and, lt, or, sql } from 'drizzle-orm';
+import { getGlobalEgressProxy } from './capture/egressProxy.js';
 
-async function reconcileOrphanedJobs() {
+const PORT = parseInt(process.env.PORT || '3001', 10);
+const HOST = process.env.HOST || '0.0.0.0';
+
+export function logFatalAndExit(type: 'uncaughtException' | 'unhandledRejection', err: unknown) {
+  const message = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? err.stack : undefined;
+  
+  // Clean any potential secret patterns just in case
+  const safeMessage = message.replace(/((?:key|secret|token|password|auth|apiKey|byokApiKey)=)[^\s&]+/gi, '$1[REDACTED]');
+  const safeStack = stack ? stack.replace(/((?:key|secret|token|password|auth|apiKey|byokApiKey)=)[^\s&]+/gi, '$1[REDACTED]') : undefined;
+
+  const logPayload = JSON.stringify({
+    level: 'fatal',
+    type,
+    message: safeMessage,
+    stack: safeStack,
+    timestamp: new Date().toISOString(),
+  });
+
+  process.stderr.write(logPayload + '\n', () => {
+    process.exit(1);
+  });
+  // Force exit after 1s if stream didn't flush
+  setTimeout(() => process.exit(1), 1000).unref();
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  process.on('uncaughtException', (err) => {
+    logFatalAndExit('uncaughtException', err);
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    logFatalAndExit('unhandledRejection', reason);
+  });
+}
+
+export async function reconcileOrphanedJobs(now = new Date()) {
   try {
-    const orphaned = await db.update(auditJob)
+    const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+
+    // 1. Mark pending jobs older than 10 minutes as failed
+    const pendingOrphaned = await db.update(auditJob)
       .set({ 
         status: 'failed', 
-        failureReason: 'Server restarted while job was in progress. Job orphaned.',
-        completedAt: new Date()
+        failureReason: 'SERVER_RESTART',
+        completedAt: now
       })
-      .where(eq(auditJob.status, 'running'))
+      .where(and(
+        eq(auditJob.status, 'pending'),
+        lt(auditJob.createdAt, tenMinutesAgo)
+      ))
+      .returning();
+
+    // 2. Mark running jobs older than 5 minutes as failed
+    const runningOrphaned = await db.update(auditJob)
+      .set({ 
+        status: 'failed', 
+        failureReason: 'SERVER_RESTART',
+        completedAt: now
+      })
+      .where(and(
+        eq(auditJob.status, 'running'),
+        or(
+          lt(auditJob.startedAt, fiveMinutesAgo),
+          and(sql`${auditJob.startedAt} IS NULL`, lt(auditJob.createdAt, fiveMinutesAgo))
+        )
+      ))
       .returning();
       
-    if (orphaned.length > 0) {
-      console.log(`[Reconciliation] Marked ${orphaned.length} orphaned jobs as failed.`);
+    const total = pendingOrphaned.length + runningOrphaned.length;
+    if (total > 0) {
+      console.log(`[Reconciliation] Marked ${total} orphaned jobs (${pendingOrphaned.length} pending >10m, ${runningOrphaned.length} running >5m) as failed.`);
     }
+    return { pendingOrphaned, runningOrphaned };
   } catch (error) {
     console.error('[Reconciliation] Failed to clean up orphaned jobs:', error);
+    return { pendingOrphaned: [], runningOrphaned: [] };
   }
 }
 
@@ -76,7 +135,12 @@ export async function buildServer() {
 }
 
 async function main() {
+  await getGlobalEgressProxy();
   await reconcileOrphanedJobs();
+  setInterval(() => {
+    reconcileOrphanedJobs();
+  }, 5 * 60 * 1000).unref();
+
   const server = await buildServer();
 
   try {
