@@ -215,8 +215,11 @@ describe('Abuse Control - BYOK Rate Limiting', () => {
       setCookie: vi.fn(),
     };
 
+    // getClientIp reads headers['cf-connecting-ip'] and socket.remoteAddress
     const mockReq = {
-      ip: '198.51.100.5',
+      headers: { 'cf-connecting-ip': '198.51.100.5' },
+      socket: { remoteAddress: '10.0.0.1' },
+      log: { warn: vi.fn() },
       cookies: {},
     };
 
@@ -230,7 +233,9 @@ describe('Abuse Control - BYOK Rate Limiting', () => {
 
     // Even if cookie is wiped, IP bucket still blocks it
     const wipedCookieReq = {
-      ip: '198.51.100.5',
+      headers: { 'cf-connecting-ip': '198.51.100.5' },
+      socket: { remoteAddress: '10.0.0.1' },
+      log: { warn: vi.fn() },
       cookies: {},
     };
     expect(checkAndConsumeByokRateLimit(wipedCookieReq as any, mockReply as any)).toBe(false);

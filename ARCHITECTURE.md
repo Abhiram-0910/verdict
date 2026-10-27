@@ -47,7 +47,8 @@ verdict/
 | `backend/src/agents/copyCritique.ts` | Gemini call: five-second test, CTA copy, trust signals |
 | `backend/src/agents/scoring.ts` | Aggregation + impact-based ranking |
 | `backend/src/routes/audits.ts` | Job creation + status polling endpoints |
-| `backend/src/lib/rateLimit.ts` | Cookie-based free-audit limiter |
+| `backend/src/lib/clientIp.ts` | Canonical client IP resolver: validates cf-connecting-ip against BlockList, falls back closed to socket, ignores forged XFF |
+| `backend/src/lib/rateLimit.ts` | Cookie-based and IP-based free-audit limiter |
 | `.env.example` | Required environment variables |
 
 ---
@@ -82,7 +83,9 @@ npm run db:studio
 - **SSRF protection via filtering forward proxy:** in-process forward proxy pins upstream connections directly to validated IPs via `node:net` `BlockList`, closes DNS-rebinding windows, covers WebSockets, blocks loopback/private/cloud-metadata ranges, and restricts ports to 80/443. Chromium is configured with `bypass: '<-loopback>'` so all loopback traffic traverses the proxy. A second-layer `page.route` inspection operates in-browser.
 - **Single Node runtime over FastAPI split:** avoids a cross-language boundary with no functional benefit on a solo project.
 - **Async job + polling, not a blocking request:** Serverless cold starts and request timeouts make a single long blocking call unreliable.
-- **Cookie rate-limiting, no login:** keeps the "paste a URL, done" experience frictionless per the MVP spec.
+- **Client IP identity via cf-connecting-ip (trustProxy: false):** Live testing on Render proved reverse proxies append to client-supplied `X-Forwarded-For` rather than overwriting it. With Fastify's `trustProxy: true` selecting the leftmost IP, `request.ip` became attacker-controlled, undermining IP-keyed rate limits and queue concurrency. Verdict sets `trustProxy: false` and resolves canonical client IP strictly from Cloudflare's non-spoofable `cf-connecting-ip` (validating public IP format against `BlockList` and falling back closed to the socket peer address).
+- **Fastify global bodyLimit (32KB):** Enforces a 32768-byte payload cap at the Fastify server layer to mitigate memory exhaustion and input parser abuse while safely accommodating valid JSON submissions.
+- **Cookie + IP double rate-limiting, no login:** keeps the "paste a URL, done" experience frictionless per the MVP spec while preventing cookie-dropping bypasses.
 
 ---
 

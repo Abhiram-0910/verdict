@@ -9,6 +9,7 @@ import { runScoring } from '../agents/scoring.js';
 import { checkAndConsumeRateLimit } from '../lib/rateLimit.js';
 import { getProvider } from '../providers/index.js';
 import type { ProviderName } from '../providers/types.js';
+import { getClientIp } from '../lib/clientIp.js';
 import {
   checkIpLiteral,
   validateByokApiKey,
@@ -111,7 +112,8 @@ export default async function auditsRoutes(fastify: FastifyInstance) {
     }
 
     // 3. Queue Capacity & Concurrency (Max 1 in-flight per IP, Max pending jobs cap)
-    const clientIp = request.ip || 'unknown';
+    const { ip: clientIp, source: ipSource } = getClientIp(request);
+    request.log.info({ resolvedIp: clientIp, source: ipSource }, 'POST /api/audits client IP resolved');
     const queueCheck = checkQueueCapacity(clientIp);
     if (!queueCheck.allowed) {
       if (queueCheck.status === 503) {
@@ -215,6 +217,9 @@ export default async function auditsRoutes(fastify: FastifyInstance) {
 
   fastify.get('/api/audits/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
+
+    const { ip: clientIp, source: ipSource } = getClientIp(request);
+    request.log.info({ resolvedIp: clientIp, source: ipSource }, 'GET /api/audits/:id client IP resolved');
 
     const parsedId = idSchema.safeParse(id);
     if (!parsedId.success) {

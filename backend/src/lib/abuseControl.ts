@@ -4,6 +4,7 @@ import net from 'node:net';
 import { createForbiddenBlockList } from '../capture/egressProxy.js';
 import { getPendingCount } from '../capture/queue.js';
 import type { ProviderName } from '../providers/types.js';
+import { getClientIp } from './clientIp.js';
 
 // ── 1. IP Literal Blocking ───────────────────────────────────────────────────
 const { isForbidden } = createForbiddenBlockList();
@@ -150,7 +151,7 @@ export function checkAndConsumeByokRateLimit(request: FastifyRequest, reply: Fas
     return false;
   }
 
-  const clientIp = request.ip || 'unknown';
+  const { ip: clientIp } = getClientIp(request);
   let ipUsage = byokIpUsageMap.get(clientIp);
 
   if (ipUsage) {

@@ -92,7 +92,28 @@ export async function reconcileOrphanedJobs(now = new Date()) {
 
 export async function buildServer() {
   const app = Fastify({
-    trustProxy: true,
+    // trustProxy is intentionally FALSE.
+    //
+    // Live finding (2026-10-27): Render's proxy appends to a client-supplied
+    // X-Forwarded-For header instead of overwriting it. With trustProxy: true,
+    // Fastify reads the *leftmost* entry, making request.ip attacker-controlled.
+    // This would defeat every IP-keyed control (free-tier bucket, BYOK cap,
+    // per-IP in-flight limit).
+    //
+    // With trustProxy: false, request.ip = socket peer (Render's internal proxy
+    // address) — never a user identity. We resolve the real client IP via
+    // cf-connecting-ip only (see lib/clientIp.ts), which Cloudflare sets and
+    // clients cannot spoof.
+    //
+    // Note: numeric trustProxy is disabled at runtime in Fastify >=5.12.1 and
+    // is irrelevant to this bug anyway (GHSA-3m5p-2c4r-xxw2 covers only that).
+    trustProxy: false,
+
+    // 32 KiB body limit — cheap mitigation while the open zod advisory is
+    // unresolved. Legitimate audit submissions (URL + optional BYOK fields)
+    // are always well under this limit.
+    bodyLimit: 32768,
+
     logger: {
       // Redact apiKey fields so they can never appear in log lines,
       // regardless of which route or handler logs the request body.

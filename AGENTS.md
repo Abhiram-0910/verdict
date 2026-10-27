@@ -1,9 +1,9 @@
 # AGENTS.md — Session Handoff Log
 
 ## Project State
-**Last updated:** 2026-10-25
+**Last updated:** 2026-10-27
 **Current branch:** main
-**Overall status:** Crash and memory defenses implemented, abuse/cost controls enforced, Fastify patched; 43/43 tests passing.
+**Overall status:** Canonical client IP resolved via cf-connecting-ip (trustProxy disabled), spoofed X-Forwarded-For ignored, bodyLimit 32KB added; 60/60 tests passing.
 
 ---
 
@@ -13,6 +13,35 @@
 ---
 
 ## Session Log
+
+### Session 23 — 2026-10-27 (Spoofed X-Forwarded-For Defense & Canonical Client IP Resolution)
+**Goal:** Address vulnerability where `request.ip` is attacker-controlled on Render when `trustProxy: true`. Render's reverse proxy appends to client-supplied `X-Forwarded-For` rather than overwriting it, and Fastify takes the leftmost entry, completely defeating IP-keyed controls (free-tier rate limit, BYOK cap, per-IP in-flight limit). Note: Fastify advisory GHSA-3m5p-2c4r-xxw2 covers only numeric hop count and is disabled in >=5.12.1. Implement `trustProxy: false`, canonical `cf-connecting-ip` resolution with socket fallback, structured IP logging, 32KB Fastify bodyLimit, and linting.
+
+**Completed:**
+- [x] **Disabled trustProxy:** Set `trustProxy: false` in `server.ts`. Fastify's `request.ip` resolves to socket peer (internal Render address) and is never used as client identity.
+- [x] **Canonical Client IP Resolution (`backend/src/lib/clientIp.ts`):**
+  - Created `getClientIp(request)` returning `{ ip: string, source: 'cf-connecting-ip' | 'socket' }`.
+  - Reads `cf-connecting-ip` header: ensures single value (no comma-separated lists), validates with `net.isIP`, checks against `BlockList` (rejects private, loopback, link-local, and CGNAT `100.64.0.0/10` ranges).
+  - Falls back closed to socket peer (`request.socket.remoteAddress`) with source `'socket'` and throttled warning log (max once per minute). Unknown clients share one bucket instead of obtaining fresh ones.
+  - Never reads `X-Forwarded-For`, `X-Real-IP`, or `True-Client-IP` for client identity.
+- [x] **Backend-wide Migration to `getClientIp`:**
+  - Replaced all usages of `request.ip` / `req.ip` across `rateLimit.ts`, `abuseControl.ts`, and `audits.ts`.
+  - Added structured log lines on `POST /api/audits` and `GET /api/audits/:id`: `{ resolvedIp, source }`.
+  - Zero functional occurrences of `request.ip` or `req.ip` remain in `backend/src/`.
+- [x] **Fastify bodyLimit:**
+  - Added global `bodyLimit: 32768` (32 KiB) to Fastify server options as cheap mitigation for open zod advisory. Normal requests pass; oversized payloads return 413.
+- [x] **Comprehensive Vitest Suite (`backend/tests/lib/clientIp.test.ts`):**
+  - Proved forged `X-Forwarded-For` is ignored (resolved IP = socket or valid CF header).
+  - Proved public `cf-connecting-ip` is correctly used; private, loopback, CGNAT, invalid, and multi-value CF headers fall back to socket.
+  - Proved rate limiter treats two different `cf-connecting-ip` addresses as separate clients, and two requests with identical `cf-connecting-ip` but different forged `X-Forwarded-For` headers as the same client.
+  - Added lint test scanning `backend/src/` ensuring no functional `request.ip`/`req.ip` calls exist outside `clientIp.ts`.
+  - Proved Fastify `bodyLimit` returns 413 on bodies >32768 bytes and allows normal payloads.
+  - 60/60 tests passing across all 6 test suites.
+- [x] **Documentation Updates:** Corrected `AGENTS.md`, `ARCHITECTURE.md`, and `TODO.md` to remove claims that hosts overwrite `X-Forwarded-For` and recorded the new security architecture.
+
+**Next session should start with:**
+- Proceed to live deployment on Render / Koyeb with hardened configuration.
+- Post-deployment verification of edge proxy headers and rate limiting.
 
 ### Session 22 — 2026-10-25 (Crash, Memory Defenses & Cost/Abuse Controls)
 **Goal:** Address container crash on Render during SSRF probes, fix BLOCKED classification regex for `net::ERR_ACCESS_DENIED`, implement memory logging, unhandled crash loggers, IP literal rejection at POST, cheap BYOK key validation with SHA-256 caching, BYOK rate limiting, queue capacity caps, global budget + Gemini LA-midnight circuit breaker, and 5-min orphan reconciliation.
@@ -79,7 +108,7 @@
 
 **Next session should start with:**
 - Proceed to Deployment (Backend to Koyeb, Frontend to Vercel).
-- Follow up with the Post-Deployment verification of `trustProxy: true` against Koyeb's edge proxy.
+- Post-deployment verification of edge proxy headers and rate limiting.
 
 ### Session 19 — 2026-08-11 (Security Review Pass 1)
 **Goal:** Conduct an OWASP-style adversarial security sweep across 7 areas (BYOK key handling, SQLi, CORS, rate-limiting, SSRF, info leakage, dependency audit) and patch critical findings.
@@ -87,7 +116,7 @@
 **Completed:**
 - [x] **Adversarial Sweep:** Probed API endpoints with malformed keys, SQL payloads, and XSS; all correctly rejected (HTTP 400/401) without crashing or leaking stack traces/paths. Verified 100% parameterised queries (no raw SQL concat). Confirmed strict CORS (`FRONTEND_URL` + `credentials: true`). Audited dependencies (false-positives/dev-deps only).
 - [x] **SSRF Fix (Critical):** Discovered the Playwright headless browser would blindly execute captures against internal network targets (e.g., `127.0.0.1`, `169.254.169.254`). Implemented strict DNS-level interception via `page.route('**/*', ...)` in `session.ts`, verifying resolved IPs against RFC1918, loopback (IPv4/IPv6), CGNAT (`100.64.0.0/10`), and cloud metadata ranges before allowing navigation. Verified against direct and redirect-based bypasses.
-- [x] **Rate Limiter Fix (Critical):** Discovered the cookie-based free-tier limiter could be infinitely bypassed simply by omitting the cookie. Added a secondary in-memory IP-based bucket to `rateLimit.ts` and enabled `trustProxy: true` in `server.ts` to read Koyeb's `X-Forwarded-For`. Implemented double-enforcement (both IP and cookie must pass). Verified the fix blocks cookie-droppers while still tracking state across naive IP rotations.
+- [x] **Rate Limiter Fix (Critical):** Discovered the cookie-based free-tier limiter could be infinitely bypassed simply by omitting the cookie. Added a secondary in-memory IP-based bucket to `rateLimit.ts`. Implemented double-enforcement (both IP and cookie must pass). Verified the fix blocks cookie-droppers while still tracking state across naive IP rotations. (Note: the initial attempt to rely on `trustProxy: true` was found in Session 23 to be vulnerable to client-supplied `X-Forwarded-For` appending, and was replaced with `cf-connecting-ip` validation and `trustProxy: false`).
 
 **Next session should start with:**
 - Proceed to the Full End-to-End Re-test before deployment.

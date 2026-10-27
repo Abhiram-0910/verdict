@@ -1,6 +1,5 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
-
-const MAX_AUDITS = parseInt(process.env.RATE_LIMIT_FREE_AUDITS_PER_DAY ?? '3', 10);
+import { getClientIp } from './clientIp.js';
 
 type UsageCookie = {
   count: number;
@@ -20,12 +19,20 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000); // Every hour
 
+/** Reset in-memory IP usage store — only used in tests. */
+export function resetIpUsageForTest(): void {
+  ipUsageMap.clear();
+}
+
 /**
  * Checks both the verdict_usage cookie and the client IP for rate limiting.
  * Both buckets must be under the limit to allow the request.
  * Returns true if allowed, false if blocked.
  */
 export function checkAndConsumeRateLimit(request: FastifyRequest, reply: FastifyReply): boolean {
+  // Re-read from env at call time so tests can override per-test.
+  const maxAudits = parseInt(process.env.RATE_LIMIT_FREE_AUDITS_PER_DAY ?? '3', 10);
+
   const cookieStr = request.cookies['verdict_usage'];
   
   const initialReset = new Date();
@@ -52,12 +59,12 @@ export function checkAndConsumeRateLimit(request: FastifyRequest, reply: Fastify
     usage.resetAt = nextReset.toISOString();
   }
 
-  if (usage.count >= MAX_AUDITS) {
+  if (usage.count >= maxAudits) {
     return false;
   }
 
   // Double enforcement: Check IP bucket
-  const clientIp = request.ip || 'unknown';
+  const { ip: clientIp } = getClientIp(request);
   let ipUsage = ipUsageMap.get(clientIp);
   
   if (ipUsage) {
@@ -69,7 +76,7 @@ export function checkAndConsumeRateLimit(request: FastifyRequest, reply: Fastify
     ipUsage = { count: 0, resetAt: usage.resetAt };
   }
 
-  if (ipUsage.count >= MAX_AUDITS) {
+  if (ipUsage.count >= maxAudits) {
     return false;
   }
 
