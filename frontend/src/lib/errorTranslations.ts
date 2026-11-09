@@ -20,7 +20,7 @@ export const ERROR_TRANSLATIONS: Record<string, string> = {
 
   // ── Abuse, Capacity & Quota ────────────────────────────────────────────────
   BUSY: "The server is currently running at maximum capacity. Please wait a few moments and try again.",
-  AI_QUOTA_EXHAUSTED: "The daily quota for free AI analysis has been reached for today. You can use your own API key to continue immediately, or wait for the quota to reset.",
+  AI_QUOTA_EXHAUSTED: "Our daily AI capacity is used up. It resets automatically; the countdown shows when you can run another audit.",
   PRIVATE_IP_ADDRESS: "Audits cannot be performed on private, loopback, or internal IP addresses.",
   PRIVATE_IP: "Audits cannot be performed on private, loopback, or internal IP addresses.",
 

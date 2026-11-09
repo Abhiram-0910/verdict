@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { preview, PreviewServer } from 'vite';
 import { chromium, Browser, Page } from 'playwright';
+import fs from 'node:fs';
+import path from 'node:path';
 
 describe('Security Headers, CSP & Mocked Audit Flow (Vite Preview)', () => {
   let server: PreviewServer;
@@ -20,6 +22,30 @@ describe('Security Headers, CSP & Mocked Audit Flow (Vite Preview)', () => {
   afterAll(async () => {
     if (browser) await browser.close();
     if (server) await server.close();
+  });
+
+  it('enforces committed production CSP in vercel.json with Render origin, no local addresses, and no unsafe script directives', () => {
+    const vercelJsonPath = path.resolve(__dirname, '../vercel.json');
+    const vercelConfig = JSON.parse(fs.readFileSync(vercelJsonPath, 'utf8'));
+    const headers = vercelConfig.headers?.[0]?.headers || [];
+    const cspHeader = headers.find((h: { key: string }) => h.key === 'Content-Security-Policy');
+    expect(cspHeader).toBeDefined();
+    const cspValue = cspHeader.value;
+
+    const connectSrcMatch = cspValue.match(/connect-src\s+([^;]+)/);
+    expect(connectSrcMatch).toBeTruthy();
+    const connectSrc = connectSrcMatch ? connectSrcMatch[1] : '';
+
+    expect(connectSrc).toContain('https://verdict-backend-m2co.onrender.com');
+    expect(connectSrc).not.toContain('127.0.0.1');
+    expect(connectSrc).not.toContain('localhost');
+
+    const scriptSrcMatch = cspValue.match(/script-src\s+([^;]+)/);
+    expect(scriptSrcMatch).toBeTruthy();
+    const scriptSrc = scriptSrcMatch ? scriptSrcMatch[1] : '';
+
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
+    expect(scriptSrc).not.toContain("'unsafe-eval'");
   });
 
   it('serves required security headers on index.html', async () => {

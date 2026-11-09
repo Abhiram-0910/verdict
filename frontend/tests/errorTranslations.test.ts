@@ -8,10 +8,13 @@ describe('errorTranslations', () => {
     expect(msg).toContain('capacity');
   });
 
-  it('translates AI_QUOTA_EXHAUSTED into a friendly quota message', () => {
+  it('translates AI_QUOTA_EXHAUSTED into a friendly quota message without stating a timezone', () => {
     const msg = translateError('AI_QUOTA_EXHAUSTED');
     expect(msg).toBe(ERROR_TRANSLATIONS.AI_QUOTA_EXHAUSTED);
-    expect(msg).toContain('daily quota');
+    expect(msg).toContain('daily AI capacity is used up');
+    expect(msg).toContain('resets automatically');
+    expect(msg).not.toContain('UTC');
+    expect(msg).not.toContain('midnight');
   });
 
   it('translates INVALID_API_KEY into an informative key error message', () => {

@@ -59,10 +59,26 @@ export function Privacy() {
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-ink font-display">3. Cookies and Rate Limiting</h2>
             <p>
-              Verdict uses a client-side device cookie (<code className="font-mono text-xs bg-line/50 px-1 py-0.5 rounded">verdict_usage</code> or <code className="font-mono text-xs bg-line/50 px-1 py-0.5 rounded">verdict_byok_usage</code>) solely to track daily audit counts and reset windows on your device.
+              Verdict does not use cookies for tracking, advertising, or behavioral profiling. The application sets only the following functional cookies for rate limiting and abuse prevention:
             </p>
+            <ul className="list-disc pl-5 space-y-2 text-ink/75">
+              <li>
+                <code className="font-mono text-xs bg-line/50 px-1 py-0.5 rounded text-ink font-semibold">verdict_usage</code>:
+                <span> </span>
+                <strong>Purpose:</strong> Stores the anonymous free-tier audit count and 24-hour reset timestamp on your device to enforce the daily rate limit (5 free audits per 24 hours).
+                <span> </span>
+                <strong>Lifetime:</strong> 30 days.
+              </li>
+              <li>
+                <code className="font-mono text-xs bg-line/50 px-1 py-0.5 rounded text-ink font-semibold">verdict_byok_usage</code>:
+                <span> </span>
+                <strong>Purpose:</strong> Stores the Bring-Your-Own-Key (BYOK) audit count and 24-hour reset timestamp on your device to enforce the abuse prevention rate limit (default 20 audits per 24 hours).
+                <span> </span>
+                <strong>Lifetime:</strong> 30 days.
+              </li>
+            </ul>
             <p>
-              Client IP addresses are evaluated in server memory to enforce rate limits and prevent queue saturation. IP addresses are not stored in our persistent database and are not used for tracking or profiling.
+              Client IP addresses are evaluated transiently in server memory to prevent abuse, enforce rate limits, and protect backend queue capacity. IP addresses are never written to disk or stored in our persistent database.
             </p>
           </section>
 
@@ -87,14 +103,19 @@ export function Privacy() {
               Audit reports remain accessible via their unique URL identifier so you can share results. There is currently no automatic scheduled deletion.
             </p>
             <p>
-              <strong>Deletion on request:</strong> If you are a website owner or user and wish to have an audit report, screenshots, or associated data removed from our database, please contact us and we will delete it.
+              <strong>Deletion on request:</strong> If you are a website owner or user and wish to have an audit report, screenshots, or associated data removed from our database, deletion requests should be sent to the contact address below.
+              {!contactEmail && (
+                <span className="block mt-1 text-ink/75">
+                  Do not include the audited URL or personal details in a public issue; ask for a private contact channel.
+                </span>
+              )}
             </p>
           </section>
 
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-ink font-display">6. Contact</h2>
             <p>
-              For privacy inquiries, questions, or data deletion requests, reach out via{' '}
+              For privacy inquiries, general questions, or data deletion requests, requests should be sent to{' '}
               <a 
                 href={contactHref} 
                 className="text-signal hover:underline font-medium"
@@ -103,6 +124,11 @@ export function Privacy() {
               >
                 {contactLabel}
               </a>.
+              {!contactEmail && (
+                <span className="block mt-2 text-ink/75">
+                  Do not include the audited URL or personal details in a public issue; ask for a private contact channel.
+                </span>
+              )}
             </p>
           </section>
         </div>

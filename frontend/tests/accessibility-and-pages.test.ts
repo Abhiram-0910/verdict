@@ -42,6 +42,8 @@ describe('Accessibility (axe-core) & Privacy/Terms Pages', () => {
     expect(privacyText).toContain('Audited URL');
     expect(privacyText).toContain('Screenshots');
     expect(privacyText).toContain('verdict_usage');
+    expect(privacyText).toContain('verdict_byok_usage');
+    expect(privacyText).toContain('30 days');
     expect(privacyText).toContain('IP addresses');
     expect(privacyText).toContain('No accounts');
     expect(privacyText).toContain('Gemini API under the free tier');
@@ -49,6 +51,7 @@ describe('Accessibility (axe-core) & Privacy/Terms Pages', () => {
     expect(privacyText).toContain('Bring Your Own Key');
     expect(privacyText).toContain('never stored');
     expect(privacyText).toContain('Deletion on request');
+    expect(privacyText).toContain('Do not include the audited URL or personal details in a public issue; ask for a private contact channel.');
 
     // Visit /terms
     await page.goto(`${baseUrl}/terms`, { waitUntil: 'networkidle' });
