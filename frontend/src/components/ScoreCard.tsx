@@ -1,4 +1,3 @@
-
 interface Props {
   title: string;
   score: number | null;
@@ -9,7 +8,7 @@ export function ScoreCard({ title, score, status }: Props) {
   return (
     <div className="flex flex-col p-6 rounded-lg bg-paper border border-line shadow-sm">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold text-ink/80">{title}</h3>
+        <h3 className="text-lg font-semibold text-ink/80 font-display">{title}</h3>
       </div>
       <div className="mt-auto">
         {status === 'failed' ? (
@@ -18,12 +17,12 @@ export function ScoreCard({ title, score, status }: Props) {
           </div>
         ) : score === null ? (
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-mono font-medium text-ink/40">N/A</span>
+            <span className="text-3xl font-mono font-medium text-ink/70">N/A</span>
           </div>
         ) : (
           <div className="flex items-baseline gap-1">
             <span className="text-4xl font-mono font-medium text-ink">{score}</span>
-            <span className="text-ink/50 font-mono font-medium">/ 100</span>
+            <span className="text-ink/70 font-mono font-medium">/ 100</span>
           </div>
         )}
       </div>

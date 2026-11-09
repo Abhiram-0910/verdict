@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Instrument Background -->
+  <rect width="64" height="64" rx="12" fill="#15181C"/>
+  <rect x="1" y="1" width="62" height="62" rx="11" stroke="#2955A3" stroke-width="1.5" stroke-opacity="0.4"/>
+  
+  <!-- Subtle Graticule Grid -->
+  <line x1="8" y1="32" x2="56" y2="32" stroke="#2955A3" stroke-width="1" stroke-opacity="0.25" stroke-dasharray="2 4"/>
+  <line x1="32" y1="8" x2="32" y2="56" stroke="#2955A3" stroke-width="1" stroke-opacity="0.25" stroke-dasharray="2 4"/>
+
+  <!-- Calibrated Tick Marks -->
+  <line x1="32" y1="4" x2="32" y2="8" stroke="#FAFAFA" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="32" y1="56" x2="32" y2="60" stroke="#FAFAFA" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="4" y1="32" x2="8" y2="32" stroke="#FAFAFA" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="56" y1="32" x2="60" y2="32" stroke="#FAFAFA" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- Clinical Verdict "V" Waveform -->
+  <path d="M12 32 H24 L30 46 L34 18 L40 32 H52" 
+        stroke="#2955A3" 
+        stroke-width="3.5" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+  
+  <!-- Diagnostic Status Pip -->
+  <circle cx="34" cy="18" r="2.5" fill="#FAFAFA"/>
+</svg>

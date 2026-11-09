@@ -50,7 +50,6 @@ export function BYOKPanel({ onChange }: BYOKPanelProps) {
         if (active) {
           setModelsList([]);
           setError(null);
-          // If we had a model selected but key is wiped, we are invalid.
         }
         return;
       }
@@ -118,7 +117,7 @@ export function BYOKPanel({ onChange }: BYOKPanelProps) {
             setModel(preferred ? preferred.id : data[0].id);
           }
         }
-      } catch (err) {
+      } catch {
         if (active) {
           setModelsList([]);
           setError("Failed to connect to the server.");
@@ -141,7 +140,6 @@ export function BYOKPanel({ onChange }: BYOKPanelProps) {
 
   // Report changes upward
   useEffect(() => {
-    // A key is always required to actually run an audit, even for OpenRouter.
     const isKeyValid = debouncedKey.trim().length > 0;
     const isValid = !!(isKeyValid && model && modelsList.some(m => m.id === model) && !error);
     
@@ -156,75 +154,84 @@ export function BYOKPanel({ onChange }: BYOKPanelProps) {
   return (
     <div className="bg-white border border-line rounded p-5 mt-4 shadow-sm text-left animate-in slide-in-from-top-2 fade-in duration-300">
       <div className="flex items-center gap-2 mb-5">
-        <Key className="w-5 h-5 text-signal" />
-        <h3 className="text-base font-semibold text-ink font-display">Use your own API key</h3>
+        <Key className="w-5 h-5 text-signal" aria-hidden="true" />
+        <h2 className="text-base font-semibold text-ink font-display">Use your own API key</h2>
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
         <div>
-          <label className="block text-sm font-medium text-ink/70 mb-1.5">Provider</label>
+          <label htmlFor="byok-provider" className="block text-sm font-medium text-ink/80 mb-1.5">
+            Provider
+          </label>
           <select 
+            id="byok-provider"
             value={provider}
             onChange={(e) => {
               setProvider(e.target.value as ProviderName);
               setModel('');
               setModelsList([]);
             }}
-            className="w-full bg-paper border border-line rounded px-3 py-2.5 text-ink text-sm transition-colors"
+            className="w-full bg-paper border border-line rounded px-3 py-2.5 text-ink text-sm transition-colors focus:border-signal"
           >
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="gemini">Google Gemini</option>
-            <option value="openrouter">OpenRouter</option>
-            <option value="xai">xAI (Grok)</option>
+            <option value="openai" className="bg-white text-ink">OpenAI</option>
+            <option value="anthropic" className="bg-white text-ink">Anthropic</option>
+            <option value="gemini" className="bg-white text-ink">Google Gemini</option>
+            <option value="openrouter" className="bg-white text-ink">OpenRouter</option>
+            <option value="xai" className="bg-white text-ink">xAI (Grok)</option>
           </select>
         </div>
         
         <div>
-          <label className="block text-sm font-medium text-ink/70 mb-1.5">API Key</label>
+          <label htmlFor="byok-api-key" className="block text-sm font-medium text-ink/80 mb-1.5">
+            API Key
+          </label>
           <input 
+            id="byok-api-key"
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder={provider === 'openrouter' ? "Optional for free models..." : "sk-..."}
-            className="w-full bg-paper border border-line rounded px-3 py-2.5 text-ink text-sm transition-colors placeholder:text-ink/40"
+            className="w-full bg-paper border border-line rounded px-3 py-2.5 text-ink text-sm transition-colors placeholder:text-ink/40 focus:border-signal"
           />
         </div>
       </div>
 
       <div className="relative">
-        <label className="block text-sm font-medium text-ink/70 mb-1.5">Vision Model</label>
+        <label htmlFor="byok-model" className="block text-sm font-medium text-ink/80 mb-1.5">
+          Vision Model
+        </label>
         <select 
+          id="byok-model"
           value={model}
           onChange={(e) => setModel(e.target.value)}
           disabled={isLoading || modelsList.length === 0}
-          className="w-full bg-paper border border-line rounded px-3 py-2.5 text-ink text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed appearance-none"
+          className="w-full bg-paper border border-line rounded px-3 py-2.5 text-ink text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed appearance-none focus:border-signal"
         >
           {modelsList.length === 0 && !isLoading && (
-            <option value="">{error ? '—' : 'Enter API key to load models...'}</option>
+            <option value="" className="bg-white text-ink">{error ? '—' : 'Enter API key to load models...'}</option>
           )}
           {modelsList.map(m => (
-            <option key={m.id} value={m.id}>{m.displayName}</option>
+            <option key={m.id} value={m.id} className="bg-white text-ink">{m.displayName}</option>
           ))}
         </select>
         {isLoading && (
           <div className="absolute right-3 top-[34px]">
-            <Loader2 className="w-4 h-4 text-signal animate-spin" />
+            <Loader2 className="w-4 h-4 text-signal animate-spin" aria-hidden="true" />
           </div>
         )}
       </div>
 
       {error && (
-        <div className="mt-4 flex items-start gap-2 text-flag-critical bg-flag-critical/10 px-4 py-3 rounded border border-flag-critical/20">
-          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+        <div role="alert" className="mt-4 flex items-start gap-2 text-flag-critical bg-flag-critical/10 px-4 py-3 rounded border border-flag-critical/20">
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
           <span className="text-sm font-medium leading-relaxed">{error}</span>
         </div>
       )}
 
       {/* Cold Start Indicator for BYOK */}
       {isColdStarting && !error && (
-        <div className="mt-4 flex items-start gap-2 text-ink/60 bg-paper px-4 py-3 rounded border border-line animate-in fade-in duration-500">
-          <Loader2 className="w-4 h-4 mt-0.5 animate-spin shrink-0" />
+        <div className="mt-4 flex items-start gap-2 text-ink/70 bg-paper px-4 py-3 rounded border border-line animate-in fade-in duration-500">
+          <Loader2 className="w-4 h-4 mt-0.5 animate-spin shrink-0" aria-hidden="true" />
           <span className="text-sm font-medium leading-relaxed">Booting the analysis engine — first request after idle can take a moment.</span>
         </div>
       )}
