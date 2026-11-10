@@ -55,6 +55,13 @@ export interface CritiqueRequest {
   modelId: string;
   /** The API key to authenticate the request */
   apiKey: string;
+  /**
+   * Requested sampling temperature (0 = deterministic).
+   * Providers that accept temperature should honour this.
+   * Providers that reject temperature on a 400 must retry once without it
+   * and cache that behaviour per model for the process lifetime.
+   */
+  temperature?: number;
 }
 
 export type CritiqueResult =

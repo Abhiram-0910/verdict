@@ -28,6 +28,13 @@ interface CacheEntry {
 const modelCache = new Map<string, CacheEntry>();
 
 /**
+ * Per-process cache of model IDs that have rejected temperature=0 with HTTP 400.
+ * On a 400 that mentions temperature, we retry once without it and remember
+ * the preference for the process lifetime so subsequent calls skip temperature.
+ */
+const temperatureRejectCache = new Set<string>();
+
+/**
  * Parse an HTTP error response into a canonical ProviderErrorReason.
  */
 export function classifyHttpError(status: number): ProviderErrorReason {
@@ -154,6 +161,20 @@ export abstract class OpenAICompatibleProvider implements AIProvider {
    * @param signal - AbortSignal from the parent critique() timeout controller.
    */
   protected async doCritique(req: CritiqueRequest, signal?: AbortSignal): Promise<CritiqueResult> {
+    return this.doCritiqueWithTemperatureRetry(req, signal, temperatureRejectCache.has(req.modelId));
+  }
+
+  /**
+   * Inner implementation that supports temperature retry.
+   * On the first attempt we include temperature=0.  If the provider returns a
+   * 400 whose body mentions "temperature", we retry once without it and
+   * record the model in the per-process cache so future calls skip it.
+   */
+  protected async doCritiqueWithTemperatureRetry(
+    req: CritiqueRequest,
+    signal: AbortSignal | undefined,
+    skipTemperature: boolean,
+  ): Promise<CritiqueResult> {
     const messages: unknown[] = [];
 
     if (req.systemInstruction) {
@@ -178,6 +199,23 @@ export abstract class OpenAICompatibleProvider implements AIProvider {
       messages.push({ role: 'user', content: req.prompt });
     }
 
+    const requestBody: Record<string, unknown> = {
+      model: req.modelId,
+      max_tokens: 4000,
+      messages,
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'critique_result',
+          schema: req.jsonSchema,
+          strict: true,
+        },
+      },
+    };
+    if (!skipTemperature) {
+      requestBody['temperature'] = req.temperature ?? 0;
+    }
+
     let res: Response;
     try {
       res = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -187,25 +225,24 @@ export abstract class OpenAICompatibleProvider implements AIProvider {
           Authorization: `Bearer ${req.apiKey}`,
         },
         signal,
-        body: JSON.stringify({
-          model: req.modelId,
-          max_tokens: 4000,
-          messages,
-          response_format: {
-            type: 'json_schema',
-            json_schema: {
-              name: 'critique_result',
-              schema: req.jsonSchema,
-              strict: true,
-            },
-          },
-        }),
+        body: JSON.stringify(requestBody),
       });
     } catch (err: unknown) {
       // Re-throw AbortError so the parent critique() can classify it as TIMEOUT.
       if (err instanceof Error && err.name === 'AbortError') throw err;
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, reason: 'FETCH_FAILED', detail: `Network error: ${msg}` };
+    }
+
+    // If the provider rejected temperature=0 with a 400, retry once without it.
+    if (res.status === 400 && !skipTemperature) {
+      let body400: unknown;
+      try { body400 = await res.json(); } catch { body400 = null; }
+      const bodyStr = body400 ? JSON.stringify(body400) : '';
+      if (/temperature/i.test(bodyStr)) {
+        temperatureRejectCache.add(req.modelId);
+        return this.doCritiqueWithTemperatureRetry(req, signal, true);
+      }
     }
 
     if (!res.ok) {
@@ -229,6 +266,15 @@ export abstract class OpenAICompatibleProvider implements AIProvider {
 
     return { success: true, text };
   }
+}
+
+/** Exported for testing only — clears the per-process temperature reject cache. */
+export function clearTemperatureRejectCacheForTest(): void {
+  temperatureRejectCache.clear();
+}
+/** Exported for testing only — inspects the cache. */
+export function isModelTemperatureRejected(modelId: string): boolean {
+  return temperatureRejectCache.has(modelId);
 }
 
 /**

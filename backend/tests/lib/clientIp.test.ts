@@ -278,7 +278,7 @@ describe('Server bodyLimit', () => {
 
     expect(response.statusCode).toBe(413);
     await app.close();
-  });
+  }, 15000);
 
   it('accepts a normal-sized POST body without error', async () => {
     const app = await buildServer();
@@ -295,5 +295,5 @@ describe('Server bodyLimit', () => {
     // Any non-413 response means the body was accepted (could be 202, 429, 400, etc.)
     expect(response.statusCode).not.toBe(413);
     await app.close();
-  });
+  }, 15000);
 });

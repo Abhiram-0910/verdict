@@ -60,6 +60,7 @@ export function checkAndConsumeRateLimit(request: FastifyRequest, reply: Fastify
   }
 
   if (usage.count >= maxAudits) {
+    (request as any).rateLimitResetAt = usage.resetAt;
     return false;
   }
 
@@ -77,6 +78,10 @@ export function checkAndConsumeRateLimit(request: FastifyRequest, reply: Fastify
   }
 
   if (ipUsage.count >= maxAudits) {
+    // Use the later of the two reset times so the client waits long enough
+    const ipResetAtIso = ipUsage.resetAt;
+    const resetAtIso = usage.resetAt > ipResetAtIso ? usage.resetAt : ipResetAtIso;
+    (request as any).rateLimitResetAt = resetAtIso;
     return false;
   }
 
@@ -94,4 +99,40 @@ export function checkAndConsumeRateLimit(request: FastifyRequest, reply: Fastify
   });
 
   return true;
+}
+
+/**
+ * Returns the ISO 8601 reset timestamp for the current request's rate limit window.
+ * Reads the cached value computed during checkAndConsumeRateLimit if blocked,
+ * or inspects cookie / IP buckets.
+ */
+export function getRateLimitResetAt(request: FastifyRequest): string {
+  if ((request as any).rateLimitResetAt) {
+    return (request as any).rateLimitResetAt;
+  }
+
+  const cookieStr = request.cookies['verdict_usage'];
+  let cookieResetAt: string | null = null;
+  if (cookieStr) {
+    try {
+      const usage: UsageCookie = JSON.parse(decodeURIComponent(cookieStr));
+      cookieResetAt = usage.resetAt;
+    } catch {
+      // ignore
+    }
+  }
+
+  const { ip: clientIp } = getClientIp(request);
+  const ipUsage = ipUsageMap.get(clientIp);
+  const ipResetAt = ipUsage?.resetAt ?? null;
+
+  if (cookieResetAt && ipResetAt) {
+    return cookieResetAt > ipResetAt ? cookieResetAt : ipResetAt;
+  }
+  if (cookieResetAt) return cookieResetAt;
+  if (ipResetAt) return ipResetAt;
+
+  const initialReset = new Date();
+  initialReset.setHours(initialReset.getHours() + 24);
+  return initialReset.toISOString();
 }

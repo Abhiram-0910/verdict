@@ -131,7 +131,18 @@ export async function buildServer() {
 
   await app.register(cors, {
     origin: (origin, cb) => {
-      if (!origin || origin === frontendUrl || origin === 'http://127.0.0.1:3000') {
+      // Always allow same-origin / non-browser requests (origin is undefined)
+      if (!origin) {
+        cb(null, true);
+        return;
+      }
+      // Deployed frontend origin (required env var in production)
+      if (origin === frontendUrl) {
+        cb(null, true);
+        return;
+      }
+      // Dev-only: allow the Vite dev server on 127.0.0.1 in non-production envs
+      if (process.env.NODE_ENV !== 'production' && origin === 'http://127.0.0.1:3000') {
         cb(null, true);
         return;
       }
@@ -140,8 +151,13 @@ export async function buildServer() {
     credentials: true,
   });
 
+  const cookieSecret = process.env.COOKIE_SECRET;
+  if (!cookieSecret && process.env.NODE_ENV === 'production') {
+    throw new Error('COOKIE_SECRET env var is required in production. Set a strong random value.');
+  }
+
   await app.register(fastifyCookie, {
-    secret: process.env.COOKIE_SECRET || 'verdict-secret-placeholder',
+    secret: cookieSecret || 'verdict-dev-secret-not-for-production',
     parseOptions: {}
   });
 

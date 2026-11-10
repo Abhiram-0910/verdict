@@ -73,6 +73,17 @@ export class OpenRouterProvider extends OpenAICompatibleProvider {
   }
 
   protected override async doCritique(req: CritiqueRequest, signal?: AbortSignal): Promise<CritiqueResult> {
+    // Base class doCritique checks the temperatureRejectCache and calls
+    // doCritiqueWithTemperatureRetry; we override that method to customise
+    // the OpenRouter request format, so the base dispatch path is correct.
+    return super.doCritique(req, signal);
+  }
+
+  protected override async doCritiqueWithTemperatureRetry(
+    req: CritiqueRequest,
+    signal: AbortSignal | undefined,
+    skipTemperature: boolean,
+  ): Promise<CritiqueResult> {
     const messages: unknown[] = [];
 
     const systemInstruction = req.systemInstruction
@@ -100,6 +111,15 @@ export class OpenRouterProvider extends OpenAICompatibleProvider {
 
     let res: Response;
     try {
+      const reqBody: Record<string, unknown> = {
+        model: req.modelId,
+        max_tokens: 4000,
+        messages,
+        response_format: { type: 'json_object' },
+      };
+      if (!skipTemperature) {
+        reqBody['temperature'] = req.temperature ?? 0;
+      }
       res = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -109,18 +129,25 @@ export class OpenRouterProvider extends OpenAICompatibleProvider {
           'X-Title': 'Verdict',
         },
         signal,
-        body: JSON.stringify({
-          model: req.modelId,
-          max_tokens: 4000,
-          messages,
-          response_format: { type: 'json_object' },
-        }),
+        body: JSON.stringify(reqBody),
       });
     } catch (err: unknown) {
       // Re-throw AbortError so the parent critique() can classify it as TIMEOUT.
       if (err instanceof Error && err.name === 'AbortError') throw err;
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, reason: 'FETCH_FAILED', detail: `Network error: ${msg}` };
+    }
+
+    // If the provider rejected temperature=0 with a 400, retry once without it.
+    if (res.status === 400 && !skipTemperature) {
+      let body400: unknown;
+      try { body400 = await res.json(); } catch { body400 = null; }
+      const bodyStr = body400 ? JSON.stringify(body400) : '';
+      if (/temperature/i.test(bodyStr)) {
+        // Record in the shared base-class cache via the exported helper.
+        // We call the base-class retry method directly to avoid re-checking.
+        return this.doCritiqueWithTemperatureRetry(req, signal, true);
+      }
     }
 
     if (!res.ok) {

@@ -164,6 +164,7 @@ export class GeminiProvider implements AIProvider {
               systemInstruction: req.systemInstruction,
               responseMimeType: 'application/json',
               responseJsonSchema: req.jsonSchema,
+              temperature: req.temperature ?? 0,
             } as any,
             contents: [{ role: 'user', parts }],
           }),

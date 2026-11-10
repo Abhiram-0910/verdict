@@ -6,7 +6,7 @@ import { runQueuedCapture } from '../capture/session.js';
 import { runVisualCritique, type ByokContext } from '../agents/visualCritique.js';
 import { runCopyCritique } from '../agents/copyCritique.js';
 import { runScoring } from '../agents/scoring.js';
-import { checkAndConsumeRateLimit } from '../lib/rateLimit.js';
+import { checkAndConsumeRateLimit, getRateLimitResetAt } from '../lib/rateLimit.js';
 import { getProvider } from '../providers/index.js';
 import type { ProviderName } from '../providers/types.js';
 import { getClientIp } from '../lib/clientIp.js';
@@ -104,9 +104,13 @@ export default async function auditsRoutes(fastify: FastifyInstance) {
 
       // Free Tier Rate Limit Check (Cookie + IP)
       if (!checkAndConsumeRateLimit(request, reply)) {
+        const resetAt = getRateLimitResetAt(request);
+        const retryAfterSecs = Math.max(0, Math.ceil((new Date(resetAt).getTime() - Date.now()) / 1000));
+        reply.header('Retry-After', String(retryAfterSecs));
         return reply.status(429).send({
           error: 'Rate limit exceeded',
           detail: 'You have reached the maximum number of free audits for today.',
+          resetAt,
         });
       }
     }
@@ -242,9 +246,15 @@ export default async function auditsRoutes(fastify: FastifyInstance) {
     const [score] = await db.select().from(auditScore).where(eq(auditScore.auditJobId, id));
     const items = await db.select().from(actionItem).where(eq(actionItem.auditJobId, id));
 
+    // Strip internal-only fields from captureResult before sending to clients.
+    // renderedText is page content used only by the AI agents during job processing —
+    // it must not be served to browsers (privacy + response size).
+    // Frontend confirmed to not read this field (grep of frontend/src/ returns no hits).
+    const { renderedText: _dropped, ...safeCapture } = capture ?? {};
+
     return reply.send({
       job,
-      captureResult: capture || null,
+      captureResult: capture ? safeCapture : null,
       auditScore: score || null,
       accessibilityFindings: axes,
       visualFindings: visuals,

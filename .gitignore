@@ -32,3 +32,10 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
+
+# Scratch / audit output dumps
+audit_output*.json
+openrouter_models.json
+artifacts/
+backend/inspect_rls.js
+*.scratch.ts

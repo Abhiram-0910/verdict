@@ -151,27 +151,51 @@ export class AnthropicProvider implements AIProvider {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CRITIQUE_TIMEOUT_MS);
 
-    let res: Response;
-    try {
-      res = await fetch(`${this.baseUrl}/messages`, {
+    /** Helper: build and send the Anthropic request body. */
+    const doRequest = async (includeTemperature: boolean): Promise<Response> => {
+      const reqBody: Record<string, unknown> = {
+        model: req.modelId,
+        max_tokens: 4096,
+        system: req.systemInstruction,
+        messages,
+        tools: [
+          {
+            name: 'critique_result',
+            description: 'Output the structured critique result matching the required schema.',
+            input_schema: req.jsonSchema,
+          },
+        ],
+        tool_choice: { type: 'tool', name: 'critique_result' },
+      };
+      if (includeTemperature) {
+        reqBody['temperature'] = req.temperature ?? 0;
+      }
+      return fetch(`${this.baseUrl}/messages`, {
         method: 'POST',
         headers: this.buildHeaders(req.apiKey),
         signal: controller.signal,
-        body: JSON.stringify({
-          model: req.modelId,
-          max_tokens: 4096,
-          system: req.systemInstruction,
-          messages,
-          tools: [
-            {
-              name: 'critique_result',
-              description: 'Output the structured critique result matching the required schema.',
-              input_schema: req.jsonSchema,
-            },
-          ],
-          tool_choice: { type: 'tool', name: 'critique_result' },
-        }),
+        body: JSON.stringify(reqBody),
       });
+    };
+
+    let res: Response;
+    try {
+      res = await doRequest(true);
+
+      // If the provider rejected temperature=0 with a 400, retry once without it.
+      if (res.status === 400) {
+        let body400: unknown;
+        try { body400 = await res.json(); } catch { body400 = null; }
+        const bodyStr = body400 ? JSON.stringify(body400) : '';
+        if (/temperature/i.test(bodyStr)) {
+          res = await doRequest(false);
+        } else {
+          // Not a temperature error — treat as a normal 400
+          const reason = classifyHttpError(400);
+          clearTimeout(timeoutId);
+          return { success: false, reason, detail: 'HTTP 400' };
+        }
+      }
     } catch (err: unknown) {
       clearTimeout(timeoutId);
       if (err instanceof Error && err.name === 'AbortError') {
