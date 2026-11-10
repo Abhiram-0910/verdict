@@ -160,4 +160,122 @@ describe('Warm-up Ping, Polling & Loading UX', () => {
 
     await page.close();
   }, 20000);
+
+  it('Requirement: 429 free tier with valid future resetAt in body displays countdown without (approximate) label', async () => {
+    const page: Page = await browser.newPage();
+    const serverResetTime = new Date(Date.now() + 60000).toISOString();
+
+    await page.route('**/api/audits', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({
+          status: 429,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: 'Rate limit exceeded',
+            detail: 'You have reached the maximum number of free audits for today.',
+            resetAt: serverResetTime,
+          }),
+        });
+      }
+    });
+
+    await page.goto(`${baseUrl}/`);
+    await page.locator('#audit-url-input').fill('ratelimit-future.com');
+    await page.click('button[type="submit"]');
+
+    // Rate limit banner should appear with exact countdown
+    await page.waitForSelector("text=You've used your free audits.");
+    await page.waitForSelector('text=Try again in');
+
+    // Assert (approximate) label is NOT displayed
+    const approxLabel = page.locator('text=(approximate)');
+    expect(await approxLabel.count()).toBe(0);
+
+    // BYOK panel should automatically open
+    const byokPanel = page.locator('#byok-provider');
+    expect(await byokPanel.isVisible()).toBe(true);
+
+    await page.close();
+  });
+
+  it('Requirement: 429 free tier with missing or invalid resetAt in body falls back to cookie with (approximate) label', async () => {
+    const page: Page = await browser.newPage();
+    const cookieResetTime = new Date(Date.now() + 60000).toISOString();
+    const cookieVal = encodeURIComponent(JSON.stringify({ count: 4, resetAt: cookieResetTime }));
+    await page.context().addCookies([
+      {
+        name: 'verdict_usage',
+        value: cookieVal,
+        url: baseUrl,
+      },
+    ]);
+
+    // Mock 429 with invalid resetAt in body
+    await page.route('**/api/audits', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({
+          status: 429,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: 'Rate limit exceeded',
+            detail: 'You have reached the maximum number of free audits for today.',
+            resetAt: 'invalid-iso-timestamp',
+          }),
+        });
+      }
+    });
+
+    await page.goto(`${baseUrl}/`);
+    await page.locator('#audit-url-input').fill('ratelimit-fallback.com');
+    await page.click('button[type="submit"]');
+
+    await page.waitForSelector("text=You've used your free audits.");
+    await page.waitForSelector('text=Try again in');
+
+    const approxLabel = page.locator('text=(approximate)');
+    await approxLabel.waitFor({ state: 'visible', timeout: 5000 });
+    expect(await approxLabel.isVisible()).toBe(true);
+
+    await page.close();
+  });
+
+  it('Requirement: 429 free tier with missing resetAt in body falls back to cookie with (approximate) label', async () => {
+    const page: Page = await browser.newPage();
+    const cookieResetTime = new Date(Date.now() + 60000).toISOString();
+    const cookieVal = encodeURIComponent(JSON.stringify({ count: 4, resetAt: cookieResetTime }));
+    await page.context().addCookies([
+      {
+        name: 'verdict_usage',
+        value: cookieVal,
+        url: baseUrl,
+      },
+    ]);
+
+    // Mock 429 with missing resetAt in body
+    await page.route('**/api/audits', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({
+          status: 429,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: 'Rate limit exceeded',
+            detail: 'You have reached the maximum number of free audits for today.',
+          }),
+        });
+      }
+    });
+
+    await page.goto(`${baseUrl}/`);
+    await page.locator('#audit-url-input').fill('ratelimit-missing.com');
+    await page.click('button[type="submit"]');
+
+    await page.waitForSelector("text=You've used your free audits.");
+    await page.waitForSelector('text=Try again in');
+
+    const approxLabel = page.locator('text=(approximate)');
+    await approxLabel.waitFor({ state: 'visible', timeout: 5000 });
+    expect(await approxLabel.isVisible()).toBe(true);
+
+    await page.close();
+  });
 });

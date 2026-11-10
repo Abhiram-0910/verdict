@@ -4,7 +4,7 @@ import { ArrowRight, Loader2, Sparkles, AlertCircle, Key } from 'lucide-react';
 import { BYOKPanel } from '../components/BYOKPanel';
 import { HeroDemo } from '../components/HeroDemo';
 import { Footer } from '../components/Footer';
-import { Countdown } from '../components/Countdown';
+import { Countdown, isValidFutureIso } from '../components/Countdown';
 import { translateError } from '../lib/errorTranslations';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3001';
@@ -121,10 +121,9 @@ export function Landing() {
 
       // 429 Rate Limit Exceeded
       if (res.status === 429) {
-        let serverResetAt: string | null = null;
+        let errData: { resetAt?: unknown } = {};
         try {
-          const errData = await res.json();
-          if (errData.resetAt) serverResetAt = errData.resetAt;
+          errData = await res.json();
         } catch { /* ignore */ }
 
         setIsRateLimited(true);
@@ -133,19 +132,21 @@ export function Landing() {
         clearTimeout(coldStartTimer);
         setIsColdStarting(false);
 
-        if (serverResetAt) {
-          setRateLimitResetTime({ date: serverResetAt, isApproximate: false });
+        if (isValidFutureIso(errData.resetAt)) {
+          setRateLimitResetTime({ date: errData.resetAt.trim(), isApproximate: false });
         } else {
           // Check cookie fallback
+          let fallbackResetTime: { date: string; isApproximate: boolean } | null = null;
           const cookieMatch = document.cookie.match(new RegExp('(^| )verdict_usage=([^;]+)'));
           if (cookieMatch) {
             try {
               const usage = JSON.parse(decodeURIComponent(cookieMatch[2]));
               if (usage.resetAt) {
-                setRateLimitResetTime({ date: usage.resetAt, isApproximate: true });
+                fallbackResetTime = { date: usage.resetAt, isApproximate: true };
               }
             } catch { /* ignore */ }
           }
+          setRateLimitResetTime(fallbackResetTime);
         }
         return;
       }

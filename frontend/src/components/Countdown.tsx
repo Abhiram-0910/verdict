@@ -25,6 +25,29 @@ export function formatDuration(ms: number): string {
   return parts.join(' ');
 }
 
+/**
+ * Validates that the input is a valid ISO 8601 date-time string in the future.
+ */
+export function isValidFutureIso(dateStr: unknown): dateStr is string {
+  if (typeof dateStr !== 'string') {
+    return false;
+  }
+  const trimmed = dateStr.trim();
+  if (!trimmed) {
+    return false;
+  }
+  // Standard ISO 8601 date-time format (YYYY-MM-DDTHH:mm:ss...)
+  const isIsoFormat = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)?$/.test(trimmed);
+  if (!isIsoFormat) {
+    return false;
+  }
+  const timestamp = Date.parse(trimmed);
+  if (Number.isNaN(timestamp)) {
+    return false;
+  }
+  return timestamp > Date.now();
+}
+
 export function Countdown({
   targetDate,
   isApproximate = false,
